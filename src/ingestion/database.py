@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, Float
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Define base class for SQLAlchemy models
@@ -28,6 +28,8 @@ class Article(Base):
     category = Column(String, nullable=True)           # e.g., Tech, Finance, Politics
     is_fake = Column(Boolean, nullable=True)           # Fake news flag
     topic_cluster = Column(Integer, nullable=True)     # LDA cluster mapping
+    credibility_score = Column(Float, nullable=True)    # Fake news confidence (0.0-1.0)
+    keywords = Column(Text, nullable=True)              # Comma-separated TF-IDF keywords
     
     # Layer 4: Summarization
     summary_extractive = Column(Text, nullable=True)

@@ -15,6 +15,7 @@ spacy==3.7.2
 scikit-learn==1.4.0
 gensim==4.3.2
 pandas==2.2.0
+datasets>=2.16.0
 
 # Briefing Generation
 transformers==4.37.2
