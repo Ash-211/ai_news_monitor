@@ -30,6 +30,11 @@ LABEL_MAP = {
     1: True     # Fake / Potentially Misleading
 }
 
+TRUSTED_SOURCES = [
+    'BBC News', 'BBC', 'Reuters', 'TechCrunch', 
+    'The Hindu', 'NDTV News', 'NDTV', 'Times of India', 'Indian Express'
+]
+
 
 def download_fake_news_dataset():
     """
@@ -216,13 +221,15 @@ def load_fake_news_detector():
     return model
 
 
-def detect_fake_news(text: str, model=None) -> tuple:
+def detect_fake_news(text: str, model=None, source: str = None, corroboration_count: int = 0) -> tuple:
     """
     Checks if a single article is fake news.
     
     Args:
         text: The article text.
         model: The trained pipeline.
+        source: The news source name.
+        corroboration_count: Number of other trusted articles covering this topic.
         
     Returns:
         Tuple of (is_fake: bool, credibility_score: float)
@@ -239,20 +246,48 @@ def detect_fake_news(text: str, model=None) -> tuple:
     prediction = model.predict([text])[0]
     probabilities = model.predict_proba([text])[0]
 
-    is_fake = bool(prediction == 1)
     # credibility_score = probability of being authentic (class 0)
-    credibility_score = float(probabilities[0])
+    base_score = float(probabilities[0])
+    
+    # ─── Heuristics Application ───
+    final_score = base_score
+    
+    # 1. Source Reputation
+    is_trusted = False
+    if source:
+        for ts in TRUSTED_SOURCES:
+            if ts.lower() in source.lower():
+                is_trusted = True
+                break
 
-    return is_fake, credibility_score
+    if is_trusted:
+        final_score += 0.15
+        
+    # 2. Corroboration Count
+    if corroboration_count >= 1:
+        final_score += 0.10
+        
+    # 3. Penalty for unverified lone claims
+    if not is_trusted and corroboration_count == 0:
+        final_score -= 0.15
+
+    # Clamp the final score
+    final_score = max(0.0, min(1.0, final_score))
+    
+    is_fake = bool(final_score < 0.5)
+
+    return is_fake, final_score
 
 
-def detect_batch(texts: list, model=None) -> list:
+def detect_batch(texts: list, model=None, sources: list = None, corroboration_counts: list = None) -> list:
     """
-    Runs fake news detection on a batch of articles.
+    Runs fake news detection on a batch of articles with heuristics.
     
     Args:
         texts: List of article texts.
         model: The trained pipeline.
+        sources: List of news sources (strings).
+        corroboration_counts: List of integers denoting corroboration.
         
     Returns:
         List of tuples (is_fake: bool, credibility_score: float)
@@ -277,9 +312,32 @@ def detect_batch(texts: list, model=None) -> list:
 
         result_map = {}
         for j, idx in enumerate(valid_indices):
-            is_fake = bool(predictions[j] == 1)
-            credibility_score = float(probabilities[j][0])
-            result_map[idx] = (is_fake, credibility_score)
+            base_score = float(probabilities[j][0])
+            
+            source = sources[idx] if sources and idx < len(sources) else None
+            corr_count = corroboration_counts[idx] if corroboration_counts and idx < len(corroboration_counts) else 0
+
+            final_score = base_score
+            is_trusted = False
+            if source:
+                for ts in TRUSTED_SOURCES:
+                    if ts.lower() in source.lower():
+                        is_trusted = True
+                        break
+
+            if is_trusted:
+                final_score += 0.15
+                
+            if corr_count >= 1:
+                final_score += 0.10
+                
+            if not is_trusted and corr_count == 0:
+                final_score -= 0.15
+
+            final_score = max(0.0, min(1.0, final_score))
+            is_fake = bool(final_score < 0.5)
+
+            result_map[idx] = (is_fake, final_score)
 
         for i in range(len(texts)):
             if i in result_map:

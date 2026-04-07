@@ -127,8 +127,15 @@ def run_ingestion():
 
     # 2. Fetch from RSS Feeds
     rss_urls = [
-        "http://feeds.bbci.co.uk/news/technology/rss.xml",
-        "https://techcrunch.com/feed/"
+        # International
+        "http://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://techcrunch.com/feed/",
+        "http://feeds.reuters.com/reuters/topNews",
+        # Indian
+        "https://feeds.feedburner.com/ndtvnews-top-stories",
+        "https://timesofindia.indiatimes.com/rssfeedstopstories.cms",
+        "https://indianexpress.com/feed/",
+        "https://www.thehindu.com/news/national/feeder/default.rss"
     ]
     rss_fetcher = RSSFetcher(rss_urls)
     rss_articles = rss_fetcher.fetch_feeds()

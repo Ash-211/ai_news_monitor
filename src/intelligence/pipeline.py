@@ -70,31 +70,8 @@ def run_intelligence_pipeline():
             print("  ✗ Classifier not trained yet. Skipping.")
             print("    Run: python -m src.intelligence.classifier")
 
-        # ─── Step 2: Fake News Detection ─────────────────────────────
-        print("\n[2/4] Running Fake News Detection...")
-        fake_news_model = load_fake_news_detector()
-        if fake_news_model:
-            detections = detect_batch(raw_texts, fake_news_model)
-            for i, article in enumerate(articles):
-                if article.is_fake is None:
-                    is_fake, credibility = detections[i]
-                    article.is_fake = is_fake
-                    article.credibility_score = credibility
-            print(f"  ✓ Analyzed {len(articles)} articles for credibility.")
-        else:
-            print("  ✗ Fake news detector not trained yet. Skipping.")
-            print("    Run: python -m src.intelligence.fake_news")
-
-        # ─── Step 3: Keyword Extraction ──────────────────────────────
-        print("\n[3/4] Extracting Keywords (TF-IDF)...")
-        all_keywords = extract_keywords_batch(texts, top_n=10)
-        for i, article in enumerate(articles):
-            if article.keywords is None and all_keywords[i]:
-                article.keywords = ", ".join(all_keywords[i])
-        print(f"  ✓ Extracted keywords for {len(articles)} articles.")
-
-        # ─── Step 4: Topic Modeling (LDA) ────────────────────────────
-        print("\n[4/4] Running Topic Modeling (LDA)...")
+        # ─── Step 2: Topic Modeling (LDA) ────────────────────────────
+        print("\n[2/4] Running Topic Modeling (LDA)...")
         # Check if LDA model exists, train if not
         lda_model, vectorizer = load_lda_model()
         if lda_model is None:
@@ -115,6 +92,48 @@ def run_intelligence_pipeline():
             print(f"  ✓ Assigned topic clusters to {len(articles)} articles.")
         else:
             print("  ✗ Topic modeling skipped (model unavailable).")
+            
+        session.commit()
+
+        # ─── Step 3: Keyword Extraction ──────────────────────────────
+        print("\n[3/4] Extracting Keywords (TF-IDF)...")
+        all_keywords = extract_keywords_batch(texts, top_n=10)
+        for i, article in enumerate(articles):
+            if article.keywords is None and all_keywords[i]:
+                article.keywords = ", ".join(all_keywords[i])
+        print(f"  ✓ Extracted keywords for {len(articles)} articles.")
+
+        # ─── Step 4: Fake News Detection ─────────────────────────────
+        print("\n[4/4] Running Fake News Detection...")
+        fake_news_model = load_fake_news_detector()
+        if fake_news_model:
+            # Prepare sources and corroboration counts
+            from src.intelligence.fake_news import TRUSTED_SOURCES
+            sources_list = []
+            corroboration_counts = []
+            
+            for article in articles:
+                sources_list.append(article.source)
+                corr_count = 0
+                if article.topic_cluster is not None:
+                    # Count other articles with the same topic cluster that are from trusted sources
+                    corr_count = session.query(Article).filter(
+                        Article.topic_cluster == article.topic_cluster,
+                        Article.id != article.id,
+                        Article.source.in_(TRUSTED_SOURCES)
+                    ).count()
+                corroboration_counts.append(corr_count)
+                
+            detections = detect_batch(raw_texts, fake_news_model, sources_list, corroboration_counts)
+            for i, article in enumerate(articles):
+                if article.is_fake is None:
+                    is_fake, credibility = detections[i]
+                    article.is_fake = is_fake
+                    article.credibility_score = credibility
+            print(f"  ✓ Analyzed {len(articles)} articles for credibility.")
+        else:
+            print("  ✗ Fake news detector not trained yet. Skipping.")
+            print("    Run: python -m src.intelligence.fake_news")
 
         # ─── Commit all updates ──────────────────────────────────────
         session.commit()
