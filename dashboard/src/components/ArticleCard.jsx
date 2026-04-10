@@ -50,6 +50,61 @@ const ArticleCard = ({ article }) => {
               <span className="breakdown-value">{Math.round(details.base_ml * 100)}%</span>
             </div>
             
+            {/* Improved AI Logic Section with Percentages */}
+            {details.ai_logic && (
+              <div className="ai-logic-detail">
+                <div className="logic-row">
+                  <span className="logic-label">Sensationalism Index:</span>
+                  <span className="logic-value">{details.ai_logic.sensationalism_score}%</span>
+                </div>
+                <div className="logic-bar">
+                  <div 
+                    className="logic-fill risk" 
+                    style={{ width: `${details.ai_logic.sensationalism_score}%` }} 
+                  />
+                </div>
+
+                <div className="logic-row" style={{ marginTop: '10px' }}>
+                  <span className="logic-label">Factual Alignment:</span>
+                  <span className="logic-value">{details.ai_logic.objectivity_score}%</span>
+                </div>
+                <div className="logic-bar">
+                  <div 
+                    className="logic-fill trust" 
+                    style={{ width: `${details.ai_logic.objectivity_score}%` }} 
+                  />
+                </div>
+                
+                {details.ai_logic.trust_keywords?.length > 0 && (
+                  <div className="logic-row keywords" style={{ marginTop: '12px' }}>
+                    <span className="logic-label">Trust Influencers:</span>
+                    <div className="logic-terms">
+                      {details.ai_logic.trust_keywords.map((item, i) => (
+                        <span key={i} className="term trust">
+                          {item.word} <small>({item.impact}%)</small>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {details.ai_logic.risk_keywords?.length > 0 && (
+                  <div className="logic-row keywords">
+                    <span className="logic-label">Risk Influencers:</span>
+                    <div className="logic-terms">
+                      {details.ai_logic.risk_keywords.map((item, i) => (
+                        <span key={i} className="term risk">
+                          {item.word} <small>({item.impact}%)</small>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            <div style={{ margin: '10px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }} />
+
             {details.is_trusted && (
               <div className="breakdown-item">
                 <span className="breakdown-label">Authoritative Source</span>

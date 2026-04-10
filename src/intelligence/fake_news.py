@@ -350,6 +350,104 @@ def detect_batch(texts: list, model=None, sources: list = None, corroboration_co
     return results
 
 
+def explain_prediction(text: str, model=None, top_n: int = 4) -> dict:
+    """
+    Analyzes which words most influenced the AI's decision, 
+    returning their percentage contribution to the top feature set.
+    """
+    if model is None:
+        model = load_fake_news_detector()
+        if model is None:
+            return {"trust_terms": [], "risk_terms": []}
+
+    try:
+        tfidf = model.named_steps['tfidf']
+        clf = model.named_steps['classifier']
+        X_vec = tfidf.transform([text])
+        feature_names = tfidf.get_feature_names_out()
+        
+        # Calculate impacts (Coefficient * TF-IDF weight)
+        weights = X_vec.toarray()[0] * clf.coef_[0]
+        
+        # Find indices of non-zero weights
+        non_zero_indices = np.where(abs(weights) > 1e-5)[0]
+        if len(non_zero_indices) == 0:
+            return {"trust_terms": [], "risk_terms": []}
+
+        # Filter to top N terms total
+        top_indices = non_zero_indices[np.argsort(abs(weights[non_zero_indices]))][-top_n*2:]
+        
+        # Normalize weights of top items to sum to 100% impact
+        total_impact = np.sum(abs(weights[top_indices]))
+        
+        trust_terms = []
+        risk_terms = []
+        
+        for i in top_indices:
+            impact_pct = int(round((abs(weights[i]) / total_impact) * 100))
+            if weights[i] < 0: # Trust
+                trust_terms.append({"word": feature_names[i], "impact": impact_pct})
+            else: # Risk
+                risk_terms.append({"word": feature_names[i], "impact": impact_pct})
+                
+        # Sort by impact
+        trust_terms.sort(key=lambda x: x['impact'], reverse=True)
+        risk_terms.sort(key=lambda x: x['impact'], reverse=True)
+                
+        return {
+            "trust_terms": trust_terms[:top_n],
+            "risk_terms": risk_terms[:top_n]
+        }
+    except Exception as e:
+        print(f"Error explaining prediction: {e}")
+        return {"trust_terms": [], "risk_terms": []}
+
+
+def analyze_linguistic_style(text: str) -> dict:
+    """
+    Returns mathematical scores (0-100) for Sensationalism and Objectivity.
+    """
+    if not text:
+        return {"sensationalism_score": 0, "objectivity_score": 100}
+
+    words = text.split()
+    if not words:
+        return {"sensationalism_score": 0, "objectivity_score": 100}
+
+    # 1. Sensationalism Index Component: ALL CAPS
+    caps_words = [w for w in words if w.isupper() and len(w) > 2]
+    caps_ratio = len(caps_words) / len(words)
+    caps_score = min(100, caps_ratio * 400) # 25% caps = 100 pts
+    
+    # 2. Sensationalism Index Component: Punctuation Density (!!!, ???)
+    excl_count = text.count('!')
+    ques_count = text.count('?')
+    punc_density = (excl_count + ques_count) / (len(text) / 100) # per 100 chars
+    punc_score = min(100, punc_density * 20) # 5 marks/100 chars = 100 pts
+    
+    # 3. Sensationalism Index Component: Clickbait Lexicon
+    CLICKBAIT_TERMS = ['shocking', 'exposed', 'unbelievable', 'reveal', 'secret', 'won\'t believe', 'trick']
+    cb_matches = sum(1 for term in CLICKBAIT_TERMS if term in text.lower())
+    cb_score = min(100, cb_matches * 25)
+
+    # Final Sensationalism Index (Weighted Average)
+    s_index = int((caps_score * 0.4) + (punc_score * 0.3) + (cb_score * 0.3))
+    
+    # 4. Objectivity Score (Lexicon of Subjectivity)
+    # Simple heuristic: excessive adjectives/adverbs often reduce objectivity
+    SUBJECTIVE_MARKERS = ['amazing', 'terrible', 'worst', 'incredible', 'best', 'clearly', 'obviously', 'actually']
+    sub_matches = sum(1 for term in SUBJECTIVE_MARKERS if term in text.lower())
+    # Objectivity starts at 100 and drops per subjective marker found
+    objectivity = max(30, 100 - (sub_matches * 15))
+
+    return {
+        "sensationalism_score": min(100, s_index),
+        "objectivity_score": int(objectivity),
+        "caps_ratio": round(caps_ratio, 2),
+        "punc_count": excl_count + ques_count
+    }
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("  FAKE NEWS DETECTOR — Training")

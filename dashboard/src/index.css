@@ -410,6 +410,81 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--danger);
 }
 
+.ai-logic-detail {
+  margin: 10px 0;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+}
+
+.logic-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.logic-bar {
+  height: 4px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 2px;
+  width: 100%;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.logic-fill {
+  height: 100%;
+  border-radius: 2px;
+}
+
+.logic-fill.trust { background: var(--success); }
+.logic-fill.risk { background: var(--danger); }
+
+.logic-row.keywords {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.logic-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.logic-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.logic-terms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.term {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 500;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.term.trust {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--success);
+}
+
+.term.risk {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger);
+}
+
+.logic-value.trust { color: var(--success); }
+.logic-value.risk { color: var(--danger); }
+
 .clickable-badge {
   cursor: pointer;
   transition: var(--transition);

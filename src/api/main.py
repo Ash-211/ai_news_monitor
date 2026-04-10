@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from src.ingestion.database import Article
 import os
 from pydantic import BaseModel
-from src.intelligence.fake_news import TRUSTED_SOURCES
+from src.intelligence.fake_news import TRUSTED_SOURCES, load_fake_news_detector, explain_prediction, analyze_linguistic_style
 
 
 app = FastAPI(title="AI News API", description="API serving intelligence-processed news articles.")
@@ -62,6 +62,9 @@ def get_articles(
     session = get_db_session()
     if not session:
          return {"items": [], "total": 0, "page": page, "limit": limit}
+
+    # Load machine learning model for explanations
+    model = load_fake_news_detector()
     
     try:
         query = session.query(Article)
@@ -105,6 +108,15 @@ def get_articles(
             base_score = (a.credibility_score or 0.5) - bonus
             base_score = max(0.0, min(1.0, base_score))
 
+            # New: Get AI Reasoning (Top Keywords and Style)
+            ai_explanation = {"trust_terms": [], "risk_terms": []}
+            linguistic_style = {"sensationalism": "Normal"}
+            
+            content_to_analyze = a.title + " " + (a.clean_content[:500] if a.clean_content else "")
+            if model:
+                ai_explanation = explain_prediction(content_to_analyze, model=model, top_n=3)
+            linguistic_style = analyze_linguistic_style(content_to_analyze)
+
             items.append({
                 "id": a.id,
                 "title": a.title,
@@ -120,7 +132,13 @@ def get_articles(
                     "base_ml": round(base_score, 4),
                     "is_trusted": is_trusted,
                     "corroboration_count": corr_count,
-                    "bonus_applied": round(bonus, 4)
+                    "bonus_applied": round(bonus, 4),
+                    "ai_logic": {
+                        "trust_keywords": ai_explanation["trust_terms"],
+                        "risk_keywords": ai_explanation["risk_terms"],
+                        "sensationalism_score": linguistic_style["sensationalism_score"],
+                        "objectivity_score": linguistic_style["objectivity_score"]
+                    }
                 },
                 "keywords": a.keywords,
                 "summary": a.clean_content[:200] + "..." if a.clean_content else (a.raw_content[:200] + "..." if a.raw_content else "")
