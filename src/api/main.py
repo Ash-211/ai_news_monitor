@@ -5,6 +5,8 @@ from sqlalchemy.orm import sessionmaker
 from src.ingestion.database import Article
 import os
 from pydantic import BaseModel
+from src.intelligence.fake_news import TRUSTED_SOURCES
+
 
 app = FastAPI(title="AI News API", description="API serving intelligence-processed news articles.")
 
@@ -76,6 +78,33 @@ def get_articles(
         
         items = []
         for a in articles:
+            # Calculate breakdown on the fly
+            is_trusted = False
+            if a.source:
+                for ts in TRUSTED_SOURCES:
+                    if ts.lower() in a.source.lower():
+                        is_trusted = True
+                        break
+            
+            # Check for corroboration (other articles in same topic cluster from trusted sources)
+            corr_count = 0
+            if a.topic_cluster is not None:
+                corr_count = session.query(Article).filter(
+                    Article.topic_cluster == a.topic_cluster,
+                    Article.id != a.id,
+                    Article.source.in_(TRUSTED_SOURCES)
+                ).count()
+
+            # Reverse engineer the base score
+            # Score = ML + (0.15 if trusted else 0) + (0.10 if corr >= 1 else 0) - (0.15 if not trusted and corr==0 else 0)
+            bonus = 0
+            if is_trusted: bonus += 0.15
+            if corr_count >= 1: bonus += 0.10
+            if not is_trusted and corr_count == 0: bonus -= 0.15
+            
+            base_score = (a.credibility_score or 0.5) - bonus
+            base_score = max(0.0, min(1.0, base_score))
+
             items.append({
                 "id": a.id,
                 "title": a.title,
@@ -87,6 +116,12 @@ def get_articles(
                 "is_fake": a.is_fake,
                 "credibility_score": a.credibility_score,
                 "topic_cluster": a.topic_cluster,
+                "score_details": {
+                    "base_ml": round(base_score, 4),
+                    "is_trusted": is_trusted,
+                    "corroboration_count": corr_count,
+                    "bonus_applied": round(bonus, 4)
+                },
                 "keywords": a.keywords,
                 "summary": a.clean_content[:200] + "..." if a.clean_content else (a.raw_content[:200] + "..." if a.raw_content else "")
             })

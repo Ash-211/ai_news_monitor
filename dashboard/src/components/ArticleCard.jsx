@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 const ArticleCard = ({ article }) => {
+  const [showDetails, setShowDetails] = useState(false);
+  
   const isFake = article.is_fake;
-  // Credibility score is a percentage (0 to 1) 
-  // Wait, credibility score in my fake_news.py is 1 = Real, 0 = Fake because 0 is Authentic, credibility = prob of class 0.
   const scorePercent = Math.round((article.credibility_score || 0) * 100);
+  
+  // Extra details from API
+  const details = article.score_details || {};
   
   // Clean up keywords safely
   const keywordArray = article.keywords ? article.keywords.split(',').slice(0, 3) : [];
@@ -14,7 +17,11 @@ const ArticleCard = ({ article }) => {
       <div className="article-header">
         <span className="source-badge">{article.source} • {article.category}</span>
         
-        <div className={`credibility-badge ${isFake ? 'fake' : 'real'}`}>
+        <div 
+          className={`credibility-badge clickable-badge ${isFake ? 'fake' : 'real'}`}
+          onClick={() => setShowDetails(!showDetails)}
+          title="Click to see score breakdown"
+        >
           {isFake ? '⚠️ Flagged Fake' : '✓ Verified'} 
           <span style={{ opacity: 0.8 }}>({scorePercent}%)</span>
         </div>
@@ -35,6 +42,37 @@ const ArticleCard = ({ article }) => {
 
       <div className="article-body">
         <h3 className="article-title">{article.title}</h3>
+        
+        {showDetails && (
+          <div className="score-breakdown">
+            <div className="breakdown-item">
+              <span className="breakdown-label">AI Content Analysis</span>
+              <span className="breakdown-value">{Math.round(details.base_ml * 100)}%</span>
+            </div>
+            
+            {details.is_trusted && (
+              <div className="breakdown-item">
+                <span className="breakdown-label">Authoritative Source</span>
+                <span className="breakdown-value plus">+15%</span>
+              </div>
+            )}
+            
+            {details.corroboration_count >= 1 && (
+              <div className="breakdown-item">
+                <span className="breakdown-label">Cross-Reference Boost ({details.corroboration_count})</span>
+                <span className="breakdown-value plus">+10%</span>
+              </div>
+            )}
+            
+            {!details.is_trusted && details.corroboration_count === 0 && (
+              <div className="breakdown-item">
+                <span className="breakdown-label">Isolation Penalty</span>
+                <span className="breakdown-value minus">-15%</span>
+              </div>
+            )}
+          </div>
+        )}
+
         <p className="article-summary">{article.summary || "No summary available."}</p>
         
         {keywordArray.length > 0 && (

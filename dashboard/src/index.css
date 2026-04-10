@@ -365,6 +365,61 @@ h1, h2, h3, h4, h5, h6 {
   transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.score-breakdown {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  font-size: 0.8rem;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.breakdown-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.breakdown-item:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.breakdown-label {
+  color: var(--text-muted);
+}
+
+.breakdown-value {
+  font-weight: 600;
+}
+
+.breakdown-value.plus {
+  color: var(--success);
+}
+
+.breakdown-value.minus {
+  color: var(--danger);
+}
+
+.clickable-badge {
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.clickable-badge:hover {
+  filter: brightness(1.2);
+  transform: scale(1.05);
+}
+
 .loader {
   display: flex;
   justify-content: center;
