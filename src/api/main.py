@@ -141,7 +141,8 @@ def get_articles(
                     }
                 },
                 "keywords": a.keywords,
-                "summary": a.clean_content[:200] + "..." if a.clean_content else (a.raw_content[:200] + "..." if a.raw_content else "")
+                "summary": a.clean_content[:200] + "..." if a.clean_content else (a.raw_content[:200] + "..." if a.raw_content else ""),
+                "full_content": a.clean_content or a.raw_content or "Content not available for this article."
             })
             
         return {

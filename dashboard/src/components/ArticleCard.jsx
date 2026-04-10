@@ -2,12 +2,23 @@ import React, { useState } from 'react';
 
 const ArticleCard = ({ article }) => {
   const [showDetails, setShowDetails] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   
   const isFake = article.is_fake;
   const scorePercent = Math.round((article.credibility_score || 0) * 100);
   
   // Extra details from API
   const details = article.score_details || {};
+
+  const toggleDetails = () => {
+    setShowDetails(!showDetails);
+    if (!showDetails) setShowSummary(false);
+  };
+
+  const toggleSummary = () => {
+    setShowSummary(!showSummary);
+    if (!showSummary) setShowDetails(false);
+  };
   
   // Clean up keywords safely
   const keywordArray = article.keywords ? article.keywords.split(',').slice(0, 3) : [];
@@ -19,7 +30,7 @@ const ArticleCard = ({ article }) => {
         
         <div 
           className={`credibility-badge clickable-badge ${isFake ? 'fake' : 'real'}`}
-          onClick={() => setShowDetails(!showDetails)}
+          onClick={toggleDetails}
           title="Click to see score breakdown"
         >
           {isFake ? '⚠️ Flagged Fake' : '✓ Verified'} 
@@ -128,6 +139,16 @@ const ArticleCard = ({ article }) => {
           </div>
         )}
 
+        {showSummary && (
+          <div className="article-summary-box">
+             <div className="summary-scroll">
+               {article.full_content.split('\n').map((para, i) => (
+                 <p key={i} className="summary-para">{para}</p>
+               ))}
+             </div>
+          </div>
+        )}
+
         <p className="article-summary">{article.summary || "No summary available."}</p>
         
         {keywordArray.length > 0 && (
@@ -144,9 +165,14 @@ const ArticleCard = ({ article }) => {
           <span>{new Date(article.published_at).toLocaleDateString()}</span>
           {article.author && <span>By {article.author}</span>}
         </div>
-        <a href={article.url} target="_blank" rel="noopener noreferrer" className="read-more">
-          Read Full ↗
-        </a>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="summary-toggle" onClick={toggleSummary}>
+            {showSummary ? 'Close Summary' : 'Show Summary'}
+          </button>
+          <a href={article.url} target="_blank" rel="noopener noreferrer" className="read-more">
+            Read Full ↗
+          </a>
+        </div>
       </div>
     </article>
   );

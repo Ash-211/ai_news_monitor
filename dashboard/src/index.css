@@ -490,6 +490,54 @@ h1, h2, h3, h4, h5, h6 {
   transition: var(--transition);
 }
 
+.article-summary-box {
+  margin: 15px 0;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  animation: slideDown 0.3s ease-out;
+}
+
+.summary-scroll {
+  max-height: 250px;
+  overflow-y: auto;
+  padding-right: 10px;
+}
+
+.summary-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.summary-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+}
+
+.summary-para {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--text-color);
+  margin-bottom: 12px;
+}
+
+.summary-toggle {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.summary-toggle:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
 .clickable-badge:hover {
   filter: brightness(1.2);
   transform: scale(1.05);
