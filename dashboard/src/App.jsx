@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import ArticleCard from './components/ArticleCard';
+import AnalyzePanel from './components/AnalyzePanel';
 import './index.css';
 
 function App() {
   const [articles, setArticles] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [currentFilter, setCurrentFilter] = useState('all'); // all, real, fake, or category
+  const [currentFilter, setCurrentFilter] = useState('all'); // all, real, fake, analyze, or category
   const [search, setSearch] = useState('');
 
   const fetchStats = async () => {
@@ -28,7 +29,7 @@ function App() {
       
       if (currentFilter === 'real') url.searchParams.append('is_fake', 'false');
       else if (currentFilter === 'fake') url.searchParams.append('is_fake', 'true');
-      else if (currentFilter !== 'all') url.searchParams.append('category', currentFilter);
+      else if (currentFilter !== 'all' && currentFilter !== 'analyze') url.searchParams.append('category', currentFilter);
       
       if (search) url.searchParams.append('search', search);
 
@@ -47,12 +48,26 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (currentFilter === 'analyze') return; // Don't fetch articles when on analyze page
+    
     const delayDebounceFn = setTimeout(() => {
       fetchArticles();
     }, 300); // 300ms delay for search debounce
 
     return () => clearTimeout(delayDebounceFn);
   }, [currentFilter, search]);
+
+  // Show Analyze Panel
+  if (currentFilter === 'analyze') {
+    return (
+      <div className="app-container">
+        <Sidebar stats={stats} currentFilter={currentFilter} setCurrentFilter={setCurrentFilter} />
+        <main className="main-content">
+          <AnalyzePanel />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
@@ -79,7 +94,7 @@ function App() {
             {currentFilter === 'all' && 'Latest Feed'}
             {currentFilter === 'real' && 'Verified Authentic Intelligence'}
             {currentFilter === 'fake' && 'Flagged Misinformation'}
-            {!['all', 'real', 'fake'].includes(currentFilter) && `${currentFilter} News`}
+            {!['all', 'real', 'fake', 'analyze'].includes(currentFilter) && `${currentFilter} News`}
           </h2>
           
           <div className="search-bar">

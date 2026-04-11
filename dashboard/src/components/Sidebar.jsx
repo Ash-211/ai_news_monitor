@@ -33,6 +33,30 @@ const Sidebar = ({ stats, currentFilter, setCurrentFilter }) => {
         </button>
       </div>
 
+      {/* Live Analyzer Button */}
+      <div className="filter-section">
+        <h3>Tools</h3>
+        <button 
+          className={`filter-button analyze-nav-btn ${currentFilter === 'analyze' ? 'active' : ''}`}
+          onClick={() => setCurrentFilter('analyze')}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
+            </svg>
+            Analyze Article
+          </span>
+          <span className="badge" style={{ 
+            background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+            color: 'white',
+            fontWeight: '700',
+            fontSize: '0.65rem',
+            letterSpacing: '0.05em'
+          }}>LIVE</span>
+        </button>
+      </div>
+
       <div className="filter-section" style={{ marginTop: 'auto' }}>
         <h3>Topics</h3>
         {stats?.categories && Object.entries(stats.categories).map(([category, count]) => (
