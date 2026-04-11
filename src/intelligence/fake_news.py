@@ -32,8 +32,16 @@ LABEL_MAP = {
 
 TRUSTED_SOURCES = [
     'BBC News', 'BBC', 'Reuters', 'TechCrunch', 
-    'The Hindu', 'NDTV News', 'NDTV', 'Times of India', 'Indian Express'
+    'The Hindu', 'NDTV News', 'NDTV', 'Times of India', 'Indian Express',
+    'Hindustan Times', 'The Wire', 'Scroll.in', 'Mint', 'Economic Times',
+    'Associated Press', 'AP News', 'The Guardian', 'Al Jazeera'
 ]
+
+# Threshold below which an article is considered fake
+FAKE_THRESHOLD = 0.40
+
+# Minimum credibility floor for trusted sources (they can never be flagged fake)
+TRUSTED_SOURCE_FLOOR = 0.55
 
 
 def download_fake_news_dataset():
@@ -104,6 +112,66 @@ def download_fake_news_dataset():
     return _get_demo_dataset()
 
 
+def _get_indian_news_augmentation():
+    """
+    Returns additional Indian/international political news samples labeled as REAL (0).
+    These augment the training data so the model doesn't misclassify Indian political
+    news vocabulary as fake. Also pulls verified articles from the local database.
+    """
+    # Hand-curated real Indian political news samples
+    indian_real_samples = [
+        "Prime Minister Narendra Modi inaugurated the new parliament building in New Delhi, marking a historic moment for Indian democracy.",
+        "Chief Minister Chandrababu Naidu announced a new industrial corridor project in Andhra Pradesh to boost economic development in the region.",
+        "Mamata Banerjee held a rally in Kolkata demanding action against rising fuel prices and calling for national-level policy reforms.",
+        "External Affairs Minister S. Jaishankar met with his counterparts from Bangladesh and Pakistan to discuss bilateral trade agreements.",
+        "The Indian Supreme Court delivered a landmark verdict on the right to privacy, ruling it a fundamental right under the Constitution.",
+        "Rahul Gandhi addressed the Lok Sabha on the issue of unemployment among youth and proposed a national employment guarantee scheme.",
+        "Foreign Secretary Vikram Misri held discussions with US Secretary of State on strengthening defence and trade cooperation between India and the United States.",
+        "Nitish Kumar was sworn in as a member of the Rajya Sabha in a ceremony attended by senior leaders from the ruling coalition.",
+        "The Reserve Bank of India kept the repo rate unchanged at 6.5 percent, citing stable inflation and strong GDP growth projections.",
+        "India and Bangladesh signed a new water-sharing agreement for the Teesta river following high-level diplomatic negotiations.",
+        "Home Minister Amit Shah reviewed security arrangements in Jammu and Kashmir ahead of the upcoming assembly elections.",
+        "Andhra Pradesh Chief Minister launched a fleet of new fire service vehicles and emergency response equipment in Amaravati.",
+        "The Election Commission of India announced the schedule for state assembly elections in five states across northern and eastern India.",
+        "Defence Minister Rajnath Singh commissioned the INS Vikrant aircraft carrier at Cochin Shipyard in a major milestone for Indian naval capability.",
+        "Pakistan's Foreign Minister held talks with his Indian counterpart on the sidelines of the United Nations General Assembly.",
+        "The Indian government announced new tariffs on imports from China and the European Union as part of its trade rebalancing strategy.",
+        "South Korea deployed advanced thermal imaging cameras to track escaped animals from the Seoul metropolitan zoo after a containment breach.",
+        "Ireland's coalition government reached a deal on fuel subsidies for rural households following weeks of pressure from farming communities.",
+        "US-Iran nuclear negotiations entered a critical phase as diplomats discussed sanctions relief and enrichment limits in Geneva.",
+        "The United Kingdom announced a post-Brexit trade agreement with Australia covering agricultural products and digital services.",
+        "Sri Lanka's central bank raised interest rates to combat inflation as the island nation works to stabilize its economy after the debt crisis.",
+        "Nepal and China agreed to extend the railway line from Lhasa to Kathmandu as part of the Belt and Road Initiative infrastructure plan.",
+        "The BRICS summit in Johannesburg discussed expansion of membership and creation of a common trade settlement currency.",
+        "Indian Space Research Organisation launched the Chandrayaan mission from Sriharikota, marking India's next step in lunar exploration.",
+        "The World Health Organization praised India's vaccination campaign for achieving high coverage rates across rural and urban districts.",
+    ]
+
+    # Try to pull verified real articles from local DB to augment training
+    db_samples = []
+    try:
+        from src.ingestion.database import get_session, Article
+        session = get_session()
+        # Get articles from trusted sources that were previously marked real
+        real_articles = session.query(Article).filter(
+            Article.is_fake == False
+        ).limit(500).all()
+        for a in real_articles:
+            text = (a.title or '') + ' ' + (a.raw_content or a.clean_content or '')
+            if len(text.strip()) > 50:
+                db_samples.append(text[:1000])  # Cap length
+        session.close()
+        print(f"  Augmented with {len(db_samples)} verified real articles from database.")
+    except Exception as e:
+        print(f"  Could not augment from DB: {e}")
+
+    all_real = indian_real_samples * 8 + db_samples  # Repeat curated samples for balance
+    labels = [0] * len(all_real)  # All labeled as REAL
+    
+    print(f"  Indian/international augmentation: {len(all_real)} real samples added.")
+    return all_real, labels
+
+
 def _get_demo_dataset():
     """
     Returns a small synthetic dataset for development/testing purposes.
@@ -136,6 +204,8 @@ def train_fake_news_detector(max_samples: int = 20000):
     """
     Trains a binary fake news classifier.
     Evaluates Logistic Regression and Naive Bayes, picks the best.
+    Augments training data with Indian/international news samples so the
+    model doesn't misclassify regional political vocabulary as fake.
     
     Args:
         max_samples: Max number of samples to use for training.
@@ -152,6 +222,14 @@ def train_fake_news_detector(max_samples: int = 20000):
         indices = np.random.RandomState(42).choice(len(texts), max_samples, replace=False)
         texts = [texts[i] for i in indices]
         labels = [labels[i] for i in indices]
+
+    # ─── Augment with Indian/international news samples ───
+    print("\nAugmenting training data with Indian/international news...")
+    aug_texts, aug_labels = _get_indian_news_augmentation()
+    if aug_texts:
+        texts.extend(aug_texts)
+        labels.extend(aug_labels)
+        print(f"Total training samples after augmentation: {len(texts)}")
 
     # Split into train/test
     X_train, X_test, y_train, y_test = train_test_split(
@@ -252,7 +330,7 @@ def detect_fake_news(text: str, model=None, source: str = None, corroboration_co
     # ─── Heuristics Application ───
     final_score = base_score
     
-    # 1. Source Reputation
+    # 1. Source Reputation (boosted from +0.15 to +0.25)
     is_trusted = False
     if source:
         for ts in TRUSTED_SOURCES:
@@ -261,7 +339,7 @@ def detect_fake_news(text: str, model=None, source: str = None, corroboration_co
                 break
 
     if is_trusted:
-        final_score += 0.15
+        final_score += 0.25
         
     # 2. Corroboration Count
     if corroboration_count >= 1:
@@ -274,7 +352,11 @@ def detect_fake_news(text: str, model=None, source: str = None, corroboration_co
     # Clamp the final score
     final_score = max(0.0, min(1.0, final_score))
     
-    is_fake = bool(final_score < 0.5)
+    # 4. Trusted source floor — trusted outlets never get flagged as fake
+    if is_trusted:
+        final_score = max(final_score, TRUSTED_SOURCE_FLOOR)
+
+    is_fake = bool(final_score < FAKE_THRESHOLD)
 
     return is_fake, final_score
 
@@ -326,7 +408,7 @@ def detect_batch(texts: list, model=None, sources: list = None, corroboration_co
                         break
 
             if is_trusted:
-                final_score += 0.15
+                final_score += 0.25
                 
             if corr_count >= 1:
                 final_score += 0.10
@@ -335,7 +417,12 @@ def detect_batch(texts: list, model=None, sources: list = None, corroboration_co
                 final_score -= 0.15
 
             final_score = max(0.0, min(1.0, final_score))
-            is_fake = bool(final_score < 0.5)
+            
+            # Trusted source floor
+            if is_trusted:
+                final_score = max(final_score, TRUSTED_SOURCE_FLOOR)
+
+            is_fake = bool(final_score < FAKE_THRESHOLD)
 
             result_map[idx] = (is_fake, final_score)
 

@@ -65,9 +65,9 @@ def run_intelligence_pipeline():
                 if article.category is None:
                     category, confidence = classifications[i]
                     article.category = category
-            print(f"  ✓ Classified {len(articles)} articles.")
+            print(f"  [OK] Classified {len(articles)} articles.")
         else:
-            print("  ✗ Classifier not trained yet. Skipping.")
+            print("  [SKIP] Classifier not trained yet. Skipping.")
             print("    Run: python -m src.intelligence.classifier")
 
         # ─── Step 2: Topic Modeling (LDA) ────────────────────────────
@@ -82,16 +82,16 @@ def run_intelligence_pipeline():
                 if lda_model:
                     print_topics(lda_model, vectorizer)
             else:
-                print("  ✗ Not enough articles to train LDA. Need at least 5.")
+                print("  [SKIP] Not enough articles to train LDA. Need at least 5.")
 
         if lda_model and vectorizer:
             topic_ids = get_topics_batch(texts, lda_model, vectorizer)
             for i, article in enumerate(articles):
                 if article.topic_cluster is None:
                     article.topic_cluster = topic_ids[i]
-            print(f"  ✓ Assigned topic clusters to {len(articles)} articles.")
+            print(f"  [OK] Assigned topic clusters to {len(articles)} articles.")
         else:
-            print("  ✗ Topic modeling skipped (model unavailable).")
+            print("  [SKIP] Topic modeling skipped (model unavailable).")
             
         session.commit()
 
@@ -101,7 +101,7 @@ def run_intelligence_pipeline():
         for i, article in enumerate(articles):
             if article.keywords is None and all_keywords[i]:
                 article.keywords = ", ".join(all_keywords[i])
-        print(f"  ✓ Extracted keywords for {len(articles)} articles.")
+        print(f"  [OK] Extracted keywords for {len(articles)} articles.")
 
         # ─── Step 4: Fake News Detection ─────────────────────────────
         print("\n[4/4] Running Fake News Detection...")
@@ -112,7 +112,15 @@ def run_intelligence_pipeline():
             sources_list = []
             corroboration_counts = []
             
+            # Build richer texts for fake news detection: title + best content
+            detection_texts = []
             for article in articles:
+                title = article.title or ''
+                content = article.clean_content or article.raw_content or ''
+                # Always concatenate title + content for the best ML signal
+                combined = (title + ' ' + content).strip()
+                detection_texts.append(combined if len(combined) > 10 else title)
+                
                 sources_list.append(article.source)
                 corr_count = 0
                 if article.topic_cluster is not None:
@@ -124,15 +132,15 @@ def run_intelligence_pipeline():
                     ).count()
                 corroboration_counts.append(corr_count)
                 
-            detections = detect_batch(raw_texts, fake_news_model, sources_list, corroboration_counts)
+            detections = detect_batch(detection_texts, fake_news_model, sources_list, corroboration_counts)
             for i, article in enumerate(articles):
                 if article.is_fake is None:
                     is_fake, credibility = detections[i]
                     article.is_fake = is_fake
                     article.credibility_score = credibility
-            print(f"  ✓ Analyzed {len(articles)} articles for credibility.")
+            print(f"  [OK] Analyzed {len(articles)} articles for credibility.")
         else:
-            print("  ✗ Fake news detector not trained yet. Skipping.")
+            print("  [SKIP] Fake news detector not trained yet. Skipping.")
             print("    Run: python -m src.intelligence.fake_news")
 
         # ─── Commit all updates ──────────────────────────────────────
