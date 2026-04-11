@@ -43,6 +43,19 @@ FAKE_THRESHOLD = 0.40
 # Minimum credibility floor for trusted sources (they can never be flagged fake)
 TRUSTED_SOURCE_FLOOR = 0.55
 
+# Quality Heuristics Constants
+MIN_NEWS_WORDS = 50  # Increased from 40
+PROFANITY_LIST = [
+    'fuck', 'shit', 'bitch', 'asshole', 'dick', 'pussy', 'bastard', 'cunt',
+    'damn', 'hell', 'stupid', 'idiot', 'moron', 'retard', 'faggot', 'nigger',
+    'slant', 'chink', 'spic'
+]
+GLUE_WORDS = [
+    'the', 'and', 'with', 'from', 'this', 'that', 'which', 'their', 'they', 
+    'have', 'been', 'for', 'was', 'were', 'not', 'but', 'are', 'has', 'had',
+    'in', 'is', 'it', 'to', 'of', 'at', 'on', 'by', 'an', 'as', 'be'
+]
+
 
 def download_fake_news_dataset():
     """
@@ -145,6 +158,7 @@ def _get_indian_news_augmentation():
         "The BRICS summit in Johannesburg discussed expansion of membership and creation of a common trade settlement currency.",
         "Indian Space Research Organisation launched the Chandrayaan mission from Sriharikota, marking India's next step in lunar exploration.",
         "The World Health Organization praised India's vaccination campaign for achieving high coverage rates across rural and urban districts.",
+        "The United Nations released its annual report on climate change, citing increased global temperatures based on satellite data from multiple agencies."
     ]
 
     # Try to pull verified real articles from local DB to augment training
@@ -172,10 +186,57 @@ def _get_indian_news_augmentation():
     return all_real, labels
 
 
+def _get_indian_fake_news_augmentation():
+    """
+    Returns additional Indian political, WhatsApp forwards, and communal fake news
+    labeled as FAKE (1). Balances the model against the curated real news to 
+    prevent the model from treating all Indian political names as "Real".
+    """
+    indian_fake_samples = [
+        "UNESCO has declared the Indian National Anthem as the best in the world following an international vote at the UN headquarters.",
+        "The new ₹2000 notes issued by RBI contain a nano-GPS chip that can be tracked by satellites even 120 meters underground, allowing the government to recover black money.",
+        "BREAKING: Secret documents leaked online reveal opposition party leaders met with foreign spies to manipulate EVM polling machines on election day.",
+        "UNESCO declares Prime Minister Narendra Modi the best Prime Minister in the world.",
+        "Forward this message to 10 groups, and WhatsApp will change its logo color to blue. Mukesh Ambani has promised 50GB free Jio data if you do it within 24 hours.",
+        "SHOCKING: Police expose underground plot by minority communities to poison the water supply of major cities ahead of the upcoming legislative assembly elections.",
+        "A rare venomous spider from South America has arrived in India via banana shipments. If it bites you, death is certain within 5 minutes. Forward to warn your family!",
+        "Election Commission to cancel votes of those who do not link their Aadhaar card to their Voter ID by tomorrow evening. Strict orders from the Supreme Court.",
+        "Famous Bollywood superstar caught on camera insulting the Indian army and demanding the division of the country. Viral video proves sedition!",
+        "Drink hot water with crushed garlic and lemon three times a day to cure the coronavirus instantly. This secret remedy is being hidden by big pharma companies.",
+        "Major Indian political leader arrested in secret overnight raid for embezzling billions into Swiss bank accounts. Mainstream media is totally silent!",
+        "WARNING: Do not drink any cold drinks from local brands for the next few months. A worker at the factory deliberately injected HIV infected blood into the bottling line.",
+        "Muslim population to overtake Hindu population in India within the next 10 years, according to a secret UN demographic intelligence report.",
+        "CCTV footage clearly shows members of the ruling BJP distributing alcohol and cash outside polling booths to buy votes in broad daylight.",
+        "Congress party signs secret MOU with China to hand over border territories in exchange for massive election funding, top intelligence sources claim.",
+        "NASA satellite images taken during Diwali show India completely illuminated from space, proving the massive scale of the ancient Hindu festival.",
+        "Eating onions and placing them in your socks while sleeping absorbs all the toxins from your body and cures all fevers. Proven Ayurvedic miracle!",
+        "Government announces complete nationwide lockdown starting midnight tonight to deploy military forces against violent protests. Stock up on rations!",
+        "The Supreme Court of India has ordered that starting next month, all citizens must declare their religion on their official social media profiles.",
+        "Video shows a massive ghost floating across the highway near the haunted village in Rajasthan! Unbelievable paranormal evidence caught on tape.",
+        "If you receive a phone call from the number starting with 777, DO NOT answer. It is ISIS hackers who will immediately steal all money from your bank account through the call.",
+        "A young girl in a village gave birth to a snake after committing a sin against the temple deity. Thousands are gathering to witness the curse.",
+        "The historical Taj Mahal was actually an ancient Hindu temple called Tejo Mahalaya that was forcefully taken over and converted.",
+        "Amit Shah secretly admitted during a closed-door meeting that the party knows it will lose the upcoming elections in the southern states.",
+        "Ratan Tata announces he will give his entire wealth to Pakistan if India loses the upcoming cricket world cup match.",
+        "An enormous 50-foot snake was found by construction workers digging the new metro line in Bangalore. Pictures inside!",
+        "Government has started recording all your phone calls and monitoring your WhatsApp messages under the new IT regulations. Beware of what you post!",
+        "A highly contagious new virus called 'Nipah-X' that turns people into flesh-eating zombies has been discovered in a remote Indian village.",
+        "Opposition leaders caught offering millions of dollars to global news outlets (BBC, NYT) to publish fake stories ruining India's international image.",
+        "Scientists confirm the Earth will experience three days of total darkness starting next Monday due to a rare solar alignment not seen in 10,000 years."
+    ]
+    
+    # We multiply these heavily (e.g. 50 times) to ensure they have enough weight 
+    # to combat the 40,000 item US-election biased base dataset.
+    all_fakes = indian_fake_samples * 60
+    labels = [1] * len(all_fakes)
+    
+    print(f"  Indian fake news augmentation: {len(all_fakes)} fake samples added.")
+    return all_fakes, labels
+
+
 def _get_demo_dataset():
     """
     Returns a small synthetic dataset for development/testing purposes.
-    NOT suitable for production use — just ensures the pipeline doesn't crash.
     """
     real_samples = [
         "The Federal Reserve announced a quarter-point interest rate increase today, citing continued economic growth and stable employment figures across major sectors.",
@@ -183,7 +244,7 @@ def _get_demo_dataset():
         "The World Health Organization reported a 15 percent decline in global malaria cases over the past five years, attributing the decrease to improved prevention measures.",
         "SpaceX successfully launched its latest Falcon 9 rocket carrying 60 Starlink satellites into orbit from Cape Canaveral on Friday morning.",
         "The European Union passed comprehensive data privacy regulations that will affect how technology companies collect and process user information.",
-    ] * 40  # Repeat to get enough samples
+    ] * 40
 
     fake_samples = [
         "BREAKING: Secret government documents reveal that the moon landing was staged in a Hollywood studio with actors and special effects!!!",
@@ -203,35 +264,31 @@ def _get_demo_dataset():
 def train_fake_news_detector(max_samples: int = 20000):
     """
     Trains a binary fake news classifier.
-    Evaluates Logistic Regression and Naive Bayes, picks the best.
-    Augments training data with Indian/international news samples so the
-    model doesn't misclassify regional political vocabulary as fake.
-    
-    Args:
-        max_samples: Max number of samples to use for training.
-        
-    Returns:
-        The trained sklearn Pipeline, or None on failure.
     """
     texts, labels = download_fake_news_dataset()
     if texts is None:
         return None
 
-    # Subsample if needed
     if len(texts) > max_samples:
         indices = np.random.RandomState(42).choice(len(texts), max_samples, replace=False)
         texts = [texts[i] for i in indices]
         labels = [labels[i] for i in indices]
 
-    # ─── Augment with Indian/international news samples ───
     print("\nAugmenting training data with Indian/international news...")
+    # Add real Indian news
     aug_texts, aug_labels = _get_indian_news_augmentation()
     if aug_texts:
         texts.extend(aug_texts)
         labels.extend(aug_labels)
-        print(f"Total training samples after augmentation: {len(texts)}")
+        
+    # Add fake Indian news to balance!
+    fake_aug_texts, fake_aug_labels = _get_indian_fake_news_augmentation()
+    if fake_aug_texts:
+        texts.extend(fake_aug_texts)
+        labels.extend(fake_aug_labels)
+        
+    print(f"Total training samples after augmentation: {len(texts)}")
 
-    # Split into train/test
     X_train, X_test, y_train, y_test = train_test_split(
         texts, labels, test_size=0.2, random_state=42, stratify=labels
     )
@@ -272,7 +329,6 @@ def train_fake_news_detector(max_samples: int = 20000):
             best_model = pipeline
             best_name = name
 
-    # Save the best model
     os.makedirs(MODELS_DIR, exist_ok=True)
     with open(MODEL_PATH, 'wb') as f:
         pickle.dump(best_model, f)
@@ -284,9 +340,6 @@ def train_fake_news_detector(max_samples: int = 20000):
 def load_fake_news_detector():
     """
     Loads the trained fake news detector from disk.
-    
-    Returns:
-        The trained pipeline, or None if not found.
     """
     if not os.path.exists(MODEL_PATH):
         print("No saved fake news model found. Please train it first.")
@@ -299,148 +352,237 @@ def load_fake_news_detector():
     return model
 
 
-def detect_fake_news(text: str, model=None, source: str = None, corroboration_count: int = 0) -> tuple:
+def _check_text_quality(text: str) -> dict:
     """
-    Checks if a single article is fake news.
-    
-    Args:
-        text: The article text.
-        model: The trained pipeline.
-        source: The news source name.
-        corroboration_count: Number of other trusted articles covering this topic.
-        
-    Returns:
-        Tuple of (is_fake: bool, credibility_score: float)
-        credibility_score is between 0.0 (definitely fake) and 1.0 (definitely real).
+    Checks for profanity, nonsense, and quality metrics.
     """
-    if model is None:
-        model = load_fake_news_detector()
-        if model is None:
-            return False, 0.5  # Default: uncertain
+    words = [w.lower().strip('.,!?;:"()') for w in text.split()]
+    if not words:
+        return {"is_low_quality": True, "reason": "empty"}
 
-    if not text or not isinstance(text, str) or len(text.strip()) < 10:
-        return False, 0.5
+    found_profanity = [w for w in words if any(p in w for p in PROFANITY_LIST)]
+    has_profanity = len(found_profanity) > 0
 
-    prediction = model.predict([text])[0]
-    probabilities = model.predict_proba([text])[0]
-
-    # credibility_score = probability of being authentic (class 0)
-    base_score = float(probabilities[0])
+    unique_ratio = len(set(words)) / len(words)
+    is_repetitive = unique_ratio < 0.3 and len(words) > 20
     
-    # ─── Heuristics Application ───
-    final_score = base_score
+    glue_count = sum(1 for w in words if w in GLUE_WORDS)
+    glue_density = glue_count / len(words)
+    lacks_structure = glue_density < 0.15 and len(words) > 10 
     
-    # 1. Source Reputation (boosted from +0.15 to +0.25)
+    original_words = text.split()
+    cap_count = sum(1 for w in original_words if len(w) > 0 and w[0].isupper())
+    cap_ratio = cap_count / (len(original_words) or 1)
+    bad_capitalization = cap_ratio < 0.05 and len(words) > 10
+
+    avg_len = sum(len(w) for w in words) / (len(words) or 1)
+    is_random = (avg_len < 3.0 or avg_len > 12.0) and len(words) > 10
+
+    is_low_quality = has_profanity or is_repetitive or lacks_structure or is_random or bad_capitalization
+
+    return {
+        "is_low_quality": is_low_quality,
+        "has_profanity": has_profanity,
+        "is_repetitive": is_repetitive,
+        "lacks_structure": lacks_structure,
+        "is_random": is_random,
+        "bad_capitalization": bad_capitalization,
+        "word_count": len(words)
+    }
+
+
+def _apply_scoring_heuristics(title, content, content_score, source=None, corroboration_count=0, verification_result=None):
+    """
+    Shared logic for applying heuristical bonuses and penalties.
+    Returns: (is_fake, final_score, breakdown_dict)
+    """
+    # 1. Headline Score
+    style = analyze_linguistic_style(title)
+    headline_score = ((100 - style["sensationalism_score"]) + style["objectivity_score"]) / 200.0
+    
+    # 2. Combined ML Base Score
+    base_combined = (0.3 * headline_score) + (0.7 * content_score)
+    final_score = base_combined
+    
+    quality = _check_text_quality(content)
+
+    breakdown = {
+        "headline_score": round(headline_score, 4),
+        "content_score": round(content_score, 4),
+        "base_combined": round(base_combined, 4),
+        "source_boost": 0.0,
+        "corroboration_boost": 0.0,
+        "verification_boost": 0.0,
+        "penalty": 0.0,
+        "fact_check": None
+    }
+    
+    # 3. Trusted Source Detection (Robust Brand Matching)
     is_trusted = False
     if source:
+        source_clean = source.lower()
         for ts in TRUSTED_SOURCES:
-            if ts.lower() in source.lower():
+            if ts.lower() in source_clean:
                 is_trusted = True
                 break
-
-    if is_trusted:
-        final_score += 0.25
+    
+    # 4. Heuristic Bonuses (Conditional)
+    if is_trusted and base_combined > 0.3:
+        breakdown["source_boost"] = 0.15
+        final_score += 0.15
         
-    # 2. Corroboration Count
     if corroboration_count >= 1:
+        breakdown["corroboration_boost"] = 0.10
         final_score += 0.10
         
-    # 3. Penalty for unverified lone claims
     if not is_trusted and corroboration_count == 0:
+        breakdown["penalty"] -= 0.15
         final_score -= 0.15
 
-    # Clamp the final score
-    final_score = max(0.0, min(1.0, final_score))
+    # 5. Quality Penalties
+    if quality["is_low_quality"]:
+        # Minor flags like 'repetitive' or 'lacks_structure' are less severe for trusted sources
+        is_severe = quality["has_profanity"] or quality["is_random"]
+        
+        penalty_amount = 0.45
+        if quality["has_profanity"]: penalty_amount = 0.7
+        if quality["is_random"] or quality["bad_capitalization"]: penalty_amount = 0.55
+        
+        # Halve the penalty for trusted sources unless it's severe (profanity/nonsense)
+        if is_trusted and not is_severe:
+            penalty_amount *= 0.5
+            
+        breakdown["penalty"] -= penalty_amount
+        final_score -= penalty_amount
+
+    # 4. Brevity Penalty (Word Count)
+    if quality["word_count"] < MIN_NEWS_WORDS:
+        diff = MIN_NEWS_WORDS - quality["word_count"]
+        # Reduce penalty step-size for trusted sources (from 0.015 to 0.005)
+        step = 0.005 if is_trusted else 0.015
+        word_penalty = diff * step
+        applied_word_penalty = min(0.4 if not is_trusted else 0.2, word_penalty)
+        
+        breakdown["penalty"] -= applied_word_penalty
+        final_score -= applied_word_penalty
+
+    # 7. External Verification Boost/Penalty (NewsAPI + Google Fact Check)
+    if verification_result and isinstance(verification_result, dict):
+        v_score = verification_result.get("verification_score", 0.5)
+        breakdown["fact_check"] = verification_result
+        
+        if v_score >= 0.7:
+            # Well-corroborated by external sources → bonus
+            v_boost = 0.15
+            breakdown["verification_boost"] = v_boost
+            final_score += v_boost
+        elif v_score <= 0.3:
+            # Flagged or uncorroborated → penalty
+            v_penalty = 0.15
+            breakdown["verification_boost"] = -v_penalty
+            final_score -= v_penalty
+        # 0.3 < v_score < 0.7 → neutral, no adjustment
+
+    final_score = max(0.01, min(1.0, final_score))
     
-    # 4. Trusted source floor — trusted outlets never get flagged as fake
-    if is_trusted:
-        final_score = max(final_score, TRUSTED_SOURCE_FLOOR)
+    # 6. Apply "Trust Floor"
+    # Even if an article is short or has minor formatting issues, 
+    # if it's from a trusted brand and passes basic safety AND ML wasn't completely terrible, it stays REAL.
+    if is_trusted and base_combined > 0.3:
+        safety_pass = not quality["has_profanity"] and not quality["is_random"]
+        if safety_pass:
+            if final_score < TRUSTED_SOURCE_FLOOR:
+                diff_to_floor = TRUSTED_SOURCE_FLOOR - final_score
+                breakdown["source_boost"] += diff_to_floor
+                final_score = TRUSTED_SOURCE_FLOOR
+
+    # Clean up breakdown payload
+    breakdown["source_boost"] = round(breakdown["source_boost"], 4)
+    breakdown["corroboration_boost"] = round(breakdown["corroboration_boost"], 4)
+    breakdown["verification_boost"] = round(breakdown["verification_boost"], 4)
+    breakdown["penalty"] = round(breakdown["penalty"], 4)
 
     is_fake = bool(final_score < FAKE_THRESHOLD)
+    return is_fake, final_score, breakdown
 
-    return is_fake, final_score
 
-
-def detect_batch(texts: list, model=None, sources: list = None, corroboration_counts: list = None) -> list:
+def detect_fake_news(title: str, content: str, model=None, source: str = None, corroboration_count: int = 0, verification_result: dict = None) -> tuple:
     """
-    Runs fake news detection on a batch of articles with heuristics.
-    
-    Args:
-        texts: List of article texts.
-        model: The trained pipeline.
-        sources: List of news sources (strings).
-        corroboration_counts: List of integers denoting corroboration.
-        
-    Returns:
-        List of tuples (is_fake: bool, credibility_score: float)
+    Checks if a single article is fake news with dual-scoring heuristics.
+    Returns: (is_fake, final_score, breakdown_dict)
     """
     if model is None:
         model = load_fake_news_detector()
         if model is None:
-            return [(False, 0.5)] * len(texts)
+            return False, 0.5, {}
+
+    title = title or ""
+    content = content or ""
+    
+    # If the scraper failed to get body content, use the title as the content
+    # so it still goes through the ML model and heuristic pipeline!
+    if not content or len(content.strip()) < 10:
+        content = title
+
+    probabilities = model.predict_proba([content])[0]
+    content_score = float(probabilities[0])
+    
+    return _apply_scoring_heuristics(title, content, content_score, source, corroboration_count, verification_result)
+
+
+def detect_batch(titles: list, contents: list, model=None, sources: list = None, corroboration_counts: list = None) -> list:
+    """
+    Runs fake news detection on a batch of articles with heuristics.
+    Returns list of tuples: [(is_fake, final_score, breakdown_dict), ...]
+    """
+    if model is None:
+        model = load_fake_news_detector()
+        if model is None:
+            return [(False, 0.5, {})] * len(texts)
 
     results = []
     valid_indices = []
     valid_texts = []
 
-    for i, text in enumerate(texts):
-        if text and isinstance(text, str) and len(text.strip()) >= 10:
-            valid_texts.append(text)
+    for i, content in enumerate(contents):
+        title = titles[i] if titles and i < len(titles) else ""
+        content = content or ""
+        
+        # Fallback to title if content is missing
+        if len(content.strip()) < 10:
+            content = title
+            
+        if len(content.strip()) >= 10:
+            valid_texts.append(content)
             valid_indices.append(i)
 
     if valid_texts:
-        predictions = model.predict(valid_texts)
         probabilities = model.predict_proba(valid_texts)
 
         result_map = {}
         for j, idx in enumerate(valid_indices):
-            base_score = float(probabilities[j][0])
-            
+            content_score = float(probabilities[j][0])
             source = sources[idx] if sources and idx < len(sources) else None
             corr_count = corroboration_counts[idx] if corroboration_counts and idx < len(corroboration_counts) else 0
-
-            final_score = base_score
-            is_trusted = False
-            if source:
-                for ts in TRUSTED_SOURCES:
-                    if ts.lower() in source.lower():
-                        is_trusted = True
-                        break
-
-            if is_trusted:
-                final_score += 0.25
-                
-            if corr_count >= 1:
-                final_score += 0.10
-                
-            if not is_trusted and corr_count == 0:
-                final_score -= 0.15
-
-            final_score = max(0.0, min(1.0, final_score))
             
-            # Trusted source floor
-            if is_trusted:
-                final_score = max(final_score, TRUSTED_SOURCE_FLOOR)
+            title = titles[idx] if titles and idx < len(titles) else ""
+            is_fake, final_score, breakdown = _apply_scoring_heuristics(title, valid_texts[j], content_score, source, corr_count)
+            result_map[idx] = (is_fake, final_score, breakdown)
 
-            is_fake = bool(final_score < FAKE_THRESHOLD)
-
-            result_map[idx] = (is_fake, final_score)
-
-        for i in range(len(texts)):
+        for i in range(len(contents)):
             if i in result_map:
                 results.append(result_map[i])
             else:
-                results.append((False, 0.5))
+                results.append((True, 0.1, {"penalty": -0.4, "headline_score": 0.5, "content_score": 0.1, "base_combined": 0.1}))
     else:
-        results = [(False, 0.5)] * len(texts)
+        results = [(True, 0.1, {"penalty": -0.4, "headline_score": 0.5, "content_score": 0.1, "base_combined": 0.1})] * len(contents)
 
     return results
 
 
 def explain_prediction(text: str, model=None, top_n: int = 4) -> dict:
     """
-    Analyzes which words most influenced the AI's decision, 
-    returning their percentage contribution to the top feature set.
+    Analyzes which words most influenced the AI's decision.
     """
     if model is None:
         model = load_fake_news_detector()
@@ -452,39 +594,23 @@ def explain_prediction(text: str, model=None, top_n: int = 4) -> dict:
         clf = model.named_steps['classifier']
         X_vec = tfidf.transform([text])
         feature_names = tfidf.get_feature_names_out()
-        
-        # Calculate impacts (Coefficient * TF-IDF weight)
         weights = X_vec.toarray()[0] * clf.coef_[0]
-        
-        # Find indices of non-zero weights
         non_zero_indices = np.where(abs(weights) > 1e-5)[0]
         if len(non_zero_indices) == 0:
             return {"trust_terms": [], "risk_terms": []}
-
-        # Filter to top N terms total
         top_indices = non_zero_indices[np.argsort(abs(weights[non_zero_indices]))][-top_n*2:]
-        
-        # Normalize weights of top items to sum to 100% impact
         total_impact = np.sum(abs(weights[top_indices]))
-        
         trust_terms = []
         risk_terms = []
-        
         for i in top_indices:
             impact_pct = int(round((abs(weights[i]) / total_impact) * 100))
             if weights[i] < 0: # Trust
                 trust_terms.append({"word": feature_names[i], "impact": impact_pct})
             else: # Risk
                 risk_terms.append({"word": feature_names[i], "impact": impact_pct})
-                
-        # Sort by impact
         trust_terms.sort(key=lambda x: x['impact'], reverse=True)
         risk_terms.sort(key=lambda x: x['impact'], reverse=True)
-                
-        return {
-            "trust_terms": trust_terms[:top_n],
-            "risk_terms": risk_terms[:top_n]
-        }
+        return {"trust_terms": trust_terms[:top_n], "risk_terms": risk_terms[:top_n]}
     except Exception as e:
         print(f"Error explaining prediction: {e}")
         return {"trust_terms": [], "risk_terms": []}
@@ -501,32 +627,20 @@ def analyze_linguistic_style(text: str) -> dict:
     if not words:
         return {"sensationalism_score": 0, "objectivity_score": 100}
 
-    # 1. Sensationalism Index Component: ALL CAPS
     caps_words = [w for w in words if w.isupper() and len(w) > 2]
     caps_ratio = len(caps_words) / len(words)
-    caps_score = min(100, caps_ratio * 400) # 25% caps = 100 pts
-    
-    # 2. Sensationalism Index Component: Punctuation Density (!!!, ???)
+    caps_score = min(100, caps_ratio * 400) 
     excl_count = text.count('!')
     ques_count = text.count('?')
-    punc_density = (excl_count + ques_count) / (len(text) / 100) # per 100 chars
-    punc_score = min(100, punc_density * 20) # 5 marks/100 chars = 100 pts
-    
-    # 3. Sensationalism Index Component: Clickbait Lexicon
+    punc_density = (excl_count + ques_count) / (len(text) / 100)
+    punc_score = min(100, punc_density * 20) 
     CLICKBAIT_TERMS = ['shocking', 'exposed', 'unbelievable', 'reveal', 'secret', 'won\'t believe', 'trick']
     cb_matches = sum(1 for term in CLICKBAIT_TERMS if term in text.lower())
     cb_score = min(100, cb_matches * 25)
-
-    # Final Sensationalism Index (Weighted Average)
     s_index = int((caps_score * 0.4) + (punc_score * 0.3) + (cb_score * 0.3))
-    
-    # 4. Objectivity Score (Lexicon of Subjectivity)
-    # Simple heuristic: excessive adjectives/adverbs often reduce objectivity
     SUBJECTIVE_MARKERS = ['amazing', 'terrible', 'worst', 'incredible', 'best', 'clearly', 'obviously', 'actually']
     sub_matches = sum(1 for term in SUBJECTIVE_MARKERS if term in text.lower())
-    # Objectivity starts at 100 and drops per subjective marker found
     objectivity = max(30, 100 - (sub_matches * 15))
-
     return {
         "sensationalism_score": min(100, s_index),
         "objectivity_score": int(objectivity),
@@ -540,15 +654,14 @@ if __name__ == "__main__":
     print("  FAKE NEWS DETECTOR — Training")
     print("=" * 60)
     model = train_fake_news_detector(max_samples=20000)
-
     if model:
         print("\n--- Sanity Check ---")
         test_samples = [
-            "The United Nations released its annual report on climate change, citing increased global temperatures based on satellite data from multiple agencies.",
-            "SHOCKING REVELATION: Government secretly implanting microchips in vaccines to track and control the population!!!",
-            "Researchers at Stanford University published findings on a new cancer treatment in the Journal of Medicine.",
+            ("UN Report", "The United Nations released its annual report on climate change."),
+            ("SHOCKING REVELATION!!!", "Government secretly implanting microchips!!!"),
+            ("Stanford Med Research", "Researchers at Stanford University published findings on a new cancer treatment.")
         ]
-        for text in test_samples:
-            is_fake, score = detect_fake_news(text, model)
+        for title, content in test_samples:
+            is_fake, score, _ = detect_fake_news(title, content, model=model)
             status = "FAKE" if is_fake else "REAL"
-            print(f"  [{status} | Credibility: {score:.2f}] {text[:65]}...")
+            print(f"  [{status} | Credibility: {score:.2f}] {title} - {content[:45]}...")

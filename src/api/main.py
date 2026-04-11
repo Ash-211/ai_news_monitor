@@ -4,14 +4,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from src.ingestion.database import Article
 import os
-from typing import Optional
-from pydantic import BaseModel
 from src.intelligence.fake_news import (
-    TRUSTED_SOURCES, FAKE_THRESHOLD,
-    load_fake_news_detector, detect_fake_news,
-    explain_prediction, analyze_linguistic_style
+    TRUSTED_SOURCES, load_fake_news_detector, explain_prediction, analyze_linguistic_style, detect_fake_news
 )
 from src.intelligence.keyword_extractor import extract_keywords
+from src.intelligence.fact_checker import verify_article
 
 
 app = FastAPI(title="AI News API", description="API serving intelligence-processed news articles.")
@@ -87,15 +84,11 @@ def get_articles(
         
         items = []
         for a in articles:
-            # Calculate breakdown on the fly
-            is_trusted = False
-            if a.source:
-                for ts in TRUSTED_SOURCES:
-                    if ts.lower() in a.source.lower():
-                        is_trusted = True
-                        break
+            # Call `detect_fake_news` with dual-scoring to retrieve the transparent breakdown
+            # We don't overwrite `credibility_score` from DB, we just grab the dictionary.
+            content_to_analyze = a.clean_content[:500] if a.clean_content else (a.raw_content[:500] if a.raw_content else "")
             
-            # Check for corroboration (other articles in same topic cluster from trusted sources)
+            # Check corroboration
             corr_count = 0
             if a.topic_cluster is not None:
                 corr_count = session.query(Article).filter(
@@ -103,25 +96,32 @@ def get_articles(
                     Article.id != a.id,
                     Article.source.in_(TRUSTED_SOURCES)
                 ).count()
-
-            # Reverse engineer the base score
-            # Score = ML + (0.15 if trusted else 0) + (0.10 if corr >= 1 else 0) - (0.15 if not trusted and corr==0 else 0)
-            bonus = 0
-            if is_trusted: bonus += 0.15
-            if corr_count >= 1: bonus += 0.10
-            if not is_trusted and corr_count == 0: bonus -= 0.15
+                
+            _, _, breakdown = detect_fake_news(a.title, content_to_analyze, model=model, source=a.source, corroboration_count=corr_count)
             
-            base_score = (a.credibility_score or 0.5) - bonus
-            base_score = max(0.0, min(1.0, base_score))
-
-            # New: Get AI Reasoning (Top Keywords and Style)
+            # Run external fact-check for "unsure" articles (saves API quota)
+            verification_data = None
+            recalc_score = breakdown.get("base_combined", 0.5)
+            if 0.3 <= recalc_score <= 0.6:
+                try:
+                    verification_data = verify_article(a.title or "")
+                    if verification_data.get("verification_score", 0.5) != 0.5:
+                        _, _, breakdown = detect_fake_news(
+                            a.title, content_to_analyze, model=model, 
+                            source=a.source, corroboration_count=corr_count,
+                            verification_result=verification_data
+                        )
+                except Exception:
+                    pass  # Graceful fallback if API fails
+            
+            is_trusted = breakdown.get("source_boost", 0) > 0
+            
+            # Get AI Reasoning (Top Keywords and Style)
             ai_explanation = {"trust_terms": [], "risk_terms": []}
             linguistic_style = {"sensationalism": "Normal"}
-            
-            content_to_analyze = a.title + " " + (a.clean_content[:500] if a.clean_content else "")
             if model:
                 ai_explanation = explain_prediction(content_to_analyze, model=model, top_n=3)
-            linguistic_style = analyze_linguistic_style(content_to_analyze)
+            linguistic_style = analyze_linguistic_style(a.title or "")
 
             items.append({
                 "id": a.id,
@@ -135,10 +135,15 @@ def get_articles(
                 "credibility_score": a.credibility_score,
                 "topic_cluster": a.topic_cluster,
                 "score_details": {
-                    "base_ml": round(base_score, 4),
+                    "base_ml": breakdown.get("base_combined", 0.5),
+                    "headline_score": breakdown.get("headline_score", 0.5),
+                    "content_score": breakdown.get("content_score", 0.5),
                     "is_trusted": is_trusted,
                     "corroboration_count": corr_count,
-                    "bonus_applied": round(bonus, 4),
+                    "bonus_applied": breakdown.get("source_boost", 0) + breakdown.get("corroboration_boost", 0),
+                    "verification_boost": breakdown.get("verification_boost", 0),
+                    "penalty_applied": breakdown.get("penalty", 0),
+                    "fact_check": breakdown.get("fact_check"),
                     "ai_logic": {
                         "trust_keywords": ai_explanation["trust_terms"],
                         "risk_keywords": ai_explanation["risk_terms"],
@@ -161,82 +166,4 @@ def get_articles(
         session.close()
 
 
-# ─── Live Article Analysis Endpoint ───────────────────────────────
-
-class AnalyzeRequest(BaseModel):
-    text: str
-    source: Optional[str] = None
-
-
-@app.post("/api/analyze")
-def analyze_article(req: AnalyzeRequest):
-    """
-    Accepts any article text (and optional source name) and returns 
-    a full fake-news analysis with AI reasoning breakdown.
-    """
-    text = (req.text or "").strip()
-    if len(text) < 20:
-        raise HTTPException(status_code=400, detail="Article text must be at least 20 characters.")
-
-    model = load_fake_news_detector()
-    if model is None:
-        raise HTTPException(status_code=503, detail="Fake news model not loaded. Train it first.")
-
-    source = req.source or "Unknown Source"
-
-    # 1. Core detection
-    is_fake, credibility_score = detect_fake_news(text, model=model, source=source, corroboration_count=0)
-
-    # 2. AI explanation (top keywords)
-    explanation = explain_prediction(text, model=model, top_n=4)
-
-    # 3. Linguistic style analysis
-    style = analyze_linguistic_style(text)
-
-    # 4. Keyword extraction
-    try:
-        kw_list = extract_keywords(text, top_n=8)
-    except Exception:
-        kw_list = []
-
-    # 5. Source trust check
-    is_trusted = False
-    if source:
-        for ts in TRUSTED_SOURCES:
-            if ts.lower() in source.lower():
-                is_trusted = True
-                break
-
-    # 6. Compute heuristic breakdown for transparency
-    probabilities = model.predict_proba([text])[0]
-    base_ml_score = float(probabilities[0])  # raw ML confidence of being real
-
-    source_bonus = 0.25 if is_trusted else 0.0
-    corr_bonus = 0.0  # no corroboration for manually submitted articles
-    isolation_penalty = -0.15 if (not is_trusted and True) else 0.0  # always applies for manual
-
-    return {
-        "verdict": "Potentially Misleading" if is_fake else "Authentic",
-        "is_fake": is_fake,
-        "credibility_score": round(credibility_score, 4),
-        "credibility_percent": round(credibility_score * 100, 1),
-        "threshold": FAKE_THRESHOLD,
-        "source": source,
-        "is_trusted_source": is_trusted,
-        "score_breakdown": {
-            "base_ml_score": round(base_ml_score, 4),
-            "base_ml_percent": round(base_ml_score * 100, 1),
-            "source_bonus": source_bonus,
-            "corroboration_bonus": corr_bonus,
-            "isolation_penalty": isolation_penalty,
-        },
-        "ai_reasoning": {
-            "trust_keywords": explanation.get("trust_terms", []),
-            "risk_keywords": explanation.get("risk_terms", []),
-            "sensationalism_score": style.get("sensationalism_score", 0),
-            "objectivity_score": style.get("objectivity_score", 100),
-            "caps_ratio": style.get("caps_ratio", 0),
-            "punctuation_count": style.get("punc_count", 0),
-        },
-        "keywords": kw_list,
-    }
+# ─── Intelligence Pipeline Trigger (Optional Internal) ─────────────

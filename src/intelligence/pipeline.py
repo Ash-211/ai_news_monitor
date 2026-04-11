@@ -52,9 +52,16 @@ def run_intelligence_pipeline():
         # Also keep raw texts for classifier (raw text often works better 
         # for trained classifiers since the training data wasn't lemmatized)
         raw_texts = []
+        short_content_count = 0
         for article in articles:
             text = article.raw_content or article.clean_content or ""
             raw_texts.append(text)
+            if len(text.strip()) < 150:
+                short_content_count += 1
+        
+        if short_content_count > len(articles) * 0.5:
+            print(f"  [WARNING] High density of short articles ({short_content_count}/{len(articles)}).")
+            print("            AI accuracy (Layer 3) will be significantly degraded.")
 
         # ─── Step 1: Classification ──────────────────────────────────
         print("\n[1/4] Running News Classification...")
@@ -112,14 +119,15 @@ def run_intelligence_pipeline():
             sources_list = []
             corroboration_counts = []
             
-            # Build richer texts for fake news detection: title + best content
-            detection_texts = []
+            # Build separate arrays for titles and contents for dual-scoring
+            detection_titles = []
+            detection_contents = []
             for article in articles:
                 title = article.title or ''
                 content = article.clean_content or article.raw_content or ''
-                # Always concatenate title + content for the best ML signal
-                combined = (title + ' ' + content).strip()
-                detection_texts.append(combined if len(combined) > 10 else title)
+                
+                detection_titles.append(title)
+                detection_contents.append(content)
                 
                 sources_list.append(article.source)
                 corr_count = 0
@@ -132,13 +140,47 @@ def run_intelligence_pipeline():
                     ).count()
                 corroboration_counts.append(corr_count)
                 
-            detections = detect_batch(detection_texts, fake_news_model, sources_list, corroboration_counts)
+            detections = detect_batch(detection_titles, detection_contents, fake_news_model, sources_list, corroboration_counts)
             for i, article in enumerate(articles):
                 if article.is_fake is None:
-                    is_fake, credibility = detections[i]
+                    is_fake, credibility, _ = detections[i]
                     article.is_fake = is_fake
                     article.credibility_score = credibility
             print(f"  [OK] Analyzed {len(articles)} articles for credibility.")
+            
+            # ─── Step 4b: External Fact-Check for "unsure" articles ────
+            try:
+                from src.intelligence.fact_checker import verify_article
+                from src.intelligence.fake_news import detect_fake_news
+                
+                unsure_articles = [
+                    a for a in articles 
+                    if a.credibility_score is not None and 0.3 <= a.credibility_score <= 0.6
+                ]
+                
+                if unsure_articles:
+                    print(f"\n  [4b] Running external fact-check on {len(unsure_articles)} 'unsure' articles...")
+                    verified_count = 0
+                    for article in unsure_articles:
+                        title = article.title or ''
+                        content = article.clean_content or article.raw_content or ''
+                        
+                        verification = verify_article(title)
+                        if verification.get("verification_score", 0.5) != 0.5:
+                            # Re-run detection with verification data
+                            is_fake, new_score, _ = detect_fake_news(
+                                title, content, model=fake_news_model,
+                                source=article.source, verification_result=verification
+                            )
+                            article.is_fake = is_fake
+                            article.credibility_score = new_score
+                            verified_count += 1
+                    print(f"  [OK] Externally verified {verified_count} articles.")
+                else:
+                    print("  [4b] No 'unsure' articles to fact-check.")
+            except Exception as e:
+                print(f"  [WARN] Fact-check step skipped: {e}")
+
         else:
             print("  [SKIP] Fake news detector not trained yet. Skipping.")
             print("    Run: python -m src.intelligence.fake_news")
