@@ -169,6 +169,11 @@ def classify_article(text: str, model=None) -> tuple:
     prediction = model.predict([text])[0]
     probabilities = model.predict_proba([text])[0]
     confidence = float(max(probabilities))
+    
+    # If confidence is very low, it's safer to say 'General'
+    if confidence < 0.35:
+        return "General", confidence
+        
     category = AG_NEWS_LABELS.get(prediction, "Unknown")
 
     return category, confidence
@@ -207,8 +212,11 @@ def classify_batch(texts: list, model=None) -> list:
 
         result_map = {}
         for j, idx in enumerate(valid_indices):
-            category = AG_NEWS_LABELS.get(predictions[j], "Unknown")
             confidence = float(max(probabilities[j]))
+            if confidence < 0.35:
+                category = "General"
+            else:
+                category = AG_NEWS_LABELS.get(predictions[j], "Unknown")
             result_map[idx] = (category, confidence)
 
         # Rebuild results in original order

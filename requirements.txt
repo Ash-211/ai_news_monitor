@@ -2,6 +2,8 @@
 newsapi-python==0.2.7
 python-dateutil==2.8.2
 feedparser==6.0.10
+newspaper3k==0.2.8
+lxml_html_clean
 SQLAlchemy==2.0.25
 schedule==1.2.1
 python-dotenv==1.0.1

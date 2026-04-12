@@ -360,7 +360,8 @@ def _check_text_quality(text: str) -> dict:
     if not words:
         return {"is_low_quality": True, "reason": "empty"}
 
-    found_profanity = [w for w in words if any(p in w for p in PROFANITY_LIST)]
+    found_profanity = [w for w in words if w in PROFANITY_LIST]
+
     has_profanity = len(found_profanity) > 0
 
     unique_ratio = len(set(words)) / len(words)
@@ -633,7 +634,7 @@ def analyze_linguistic_style(text: str) -> dict:
     excl_count = text.count('!')
     ques_count = text.count('?')
     punc_density = (excl_count + ques_count) / (len(text) / 100)
-    punc_score = min(100, punc_density * 20) 
+    punc_score = min(100, punc_density * 20)
     CLICKBAIT_TERMS = ['shocking', 'exposed', 'unbelievable', 'reveal', 'secret', 'won\'t believe', 'trick']
     cb_matches = sum(1 for term in CLICKBAIT_TERMS if term in text.lower())
     cb_score = min(100, cb_matches * 25)

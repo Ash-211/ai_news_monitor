@@ -8,8 +8,10 @@ function App() {
   const [articles, setArticles] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [currentFilter, setCurrentFilter] = useState('all'); // all, real, fake, analyze, or category
+  const [currentFilter, setCurrentFilter] = useState('all'); // all, real, fake, or category
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
 
   const fetchStats = async () => {
     try {
@@ -21,11 +23,12 @@ function App() {
     }
   };
 
-  const fetchArticles = async () => {
+  const fetchArticles = async (targetPage = 1) => {
     setLoading(true);
     try {
       let url = new URL('http://localhost:8000/api/articles');
-      url.searchParams.append('limit', '50');
+      url.searchParams.append('page', targetPage.toString());
+      url.searchParams.append('limit', '40');
       
       if (currentFilter === 'real') url.searchParams.append('is_fake', 'false');
       else if (currentFilter === 'fake') url.searchParams.append('is_fake', 'true');
@@ -35,7 +38,13 @@ function App() {
 
       const res = await fetch(url);
       const data = await res.json();
+      
       setArticles(data.items || []);
+      setPage(targetPage);
+      setTotalPages(data.pages || 0);
+      
+      // Auto-scroll to top when page changes
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
       console.error("Failed to fetch articles", err);
     } finally {
@@ -48,14 +57,75 @@ function App() {
   }, []);
 
   useEffect(() => {
-    
     const delayDebounceFn = setTimeout(() => {
-      fetchArticles();
-    }, 300); // 300ms delay for search debounce
+      fetchArticles(1);
+    }, 300);
 
     return () => clearTimeout(delayDebounceFn);
   }, [currentFilter, search]);
 
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages && newPage !== page) {
+      fetchArticles(newPage);
+    }
+  };
+
+  // Helper to render page buttons
+  const renderPagination = () => {
+    if (totalPages <= 1) return null;
+
+    const pages = [];
+    let start = Math.max(1, page - 2);
+    let end = Math.min(totalPages, start + 4);
+    
+    if (end - start < 4) {
+      start = Math.max(1, end - 4);
+    }
+
+    return (
+      <div className="pagination-container">
+        <button 
+          className="page-nav" 
+          disabled={page === 1}
+          onClick={() => handlePageChange(page - 1)}
+        >
+          &larr; Previous
+        </button>
+        
+        {start > 1 && (
+          <>
+            <button className="page-number" onClick={() => handlePageChange(1)}>1</button>
+            {start > 2 && <span className="page-dots">...</span>}
+          </>
+        )}
+
+        {Array.from({ length: (end - start) + 1 }, (_, i) => start + i).map(p => (
+          <button 
+            key={p} 
+            className={`page-number ${page === p ? 'active' : ''}`}
+            onClick={() => handlePageChange(p)}
+          >
+            {p}
+          </button>
+        ))}
+
+        {end < totalPages && (
+          <>
+            {end < totalPages - 1 && <span className="page-dots">...</span>}
+            <button className="page-number" onClick={() => handlePageChange(totalPages)}>{totalPages}</button>
+          </>
+        )}
+
+        <button 
+          className="page-nav" 
+          disabled={page === totalPages}
+          onClick={() => handlePageChange(page + 1)}
+        >
+          Next &rarr;
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className="app-container">
@@ -104,17 +174,21 @@ function App() {
             <div className="spinner"></div>
           </div>
         ) : (
-          <div className="articles-grid">
-            {articles.length > 0 ? (
-              articles.map(article => (
-                <ArticleCard key={article.id} article={article} />
-              ))
-            ) : (
-              <div style={{ textAlign: 'center', padding: '100px', color: 'var(--text-muted)', width: '100%' }}>
-                <p style={{ fontSize: '1.2rem', fontWeight: '500' }}>No articles found for the selected criteria.</p>
-              </div>
-            )}
-          </div>
+          <>
+            <div className="articles-grid">
+              {articles.length > 0 ? (
+                articles.map(article => (
+                  <ArticleCard key={article.id} article={article} />
+                ))
+              ) : (
+                <div style={{ textAlign: 'center', padding: '100px', color: 'var(--text-muted)', width: '100%' }}>
+                  <p style={{ fontSize: '1.2rem', fontWeight: '500' }}>No articles found for the selected criteria.</p>
+                </div>
+              )}
+            </div>
+            
+            {renderPagination()}
+          </>
         )}
       </main>
     </div>

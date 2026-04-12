@@ -5,6 +5,7 @@ from dateutil import parser
 from dotenv import load_dotenv
 from newsapi import NewsApiClient
 from sqlalchemy.exc import IntegrityError
+from newspaper import Article as NewsArticle
 from src.ingestion.database import get_session, Article
 
 # Load environment variables (e.g., NEWSAPI_KEY)
@@ -75,6 +76,21 @@ def save_articles_to_db(raw_articles, source_type="NewsAPI"):
             continue
             
         raw_content = item.get('content') or item.get('description') or ''
+        
+        # Parse full text from live URL using newspaper3k
+        if url:
+            try:
+                web_article = NewsArticle(url, keep_article_html=False)
+                # Keep timeouts reasonable so ingestion doesn't hang
+                web_article.download()
+                if web_article.download_state == 2:  # SUCCESS
+                    web_article.parse()
+                    if web_article.text and len(web_article.text.strip()) > len(raw_content):
+                        raw_content = web_article.text
+            except Exception:
+                # Fallback to RSS snippet if scraping fails
+                pass
+
         source = item.get('source', {}).get('name') if isinstance(item.get('source'), dict) else item.get('source', source_type)
         author = item.get('author')
         
