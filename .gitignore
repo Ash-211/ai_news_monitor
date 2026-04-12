@@ -1,0 +1,41 @@
+.venv
+.venv2
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.env
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# VS Code
+.vscode/
+
+# PyCharm
+.idea/
+
+# macOS
+.DS_Store
+
+# Large ML model files (train locally with fake_news.py / classifier.py)
+models/*.pkl
+
+# Database (generated at runtime)
+data/*.sqlite
+data/*.db
+
+# Node modules
+dashboard/node_modules/
+
+# Logs
+logs/
+
+# Scratch / temp test scripts
+scratch/
