@@ -43,10 +43,12 @@ def get_engine():
     Initializes and returns the database engine.
     For this project, we are using a local SQLite database in the data/ folder.
     """
-    # Ensure data directory exists
-    os.makedirs('data', exist_ok=True)
-    db_path = 'sqlite:///data/database.sqlite'
-    engine = create_engine(db_path, echo=False)
+    # Ensure data directory exists relative to project root
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    data_dir = os.path.join(base_dir, 'data')
+    os.makedirs(data_dir, exist_ok=True)
+    db_path = f"sqlite:///{os.path.join(data_dir, 'database.sqlite')}"
+    engine = create_engine(db_path, echo=False, connect_args={'timeout': 15})
     return engine
 
 def init_db():

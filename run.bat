@@ -42,6 +42,12 @@ start "Background Scheduler" cmd /k "python -m src.ingestion.scheduler"
 
 echo.
 echo ==============================================
+echo 6. Starting Reprocessor...
+echo ==============================================
+start "Reprocessor" cmd /k "python -m src.maintenance.reprocess_fakes"
+
+echo.
+echo ==============================================
 echo AI News Monitor System Startup Initiated!
 echo ==============================================
 echo.

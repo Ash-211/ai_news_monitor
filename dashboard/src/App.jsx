@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import ArticleCard from './components/ArticleCard';
 // AnalyzePanel removed as requested
@@ -13,6 +13,23 @@ function App() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
 
+  // Cache: key = "filter|search|page" → response data
+  const pageCache = useRef({});
+  const abortRef = useRef(null); // cancel stale fetches
+
+  const buildCacheKey = (filter, q, p) => `${filter}|${q}|${p}`;
+
+  const buildUrl = (filter, q, p, lim = 20) => {
+    let url = new URL('http://localhost:8000/api/articles');
+    url.searchParams.append('page', p.toString());
+    url.searchParams.append('limit', lim.toString());
+    if (filter === 'real') url.searchParams.append('is_fake', 'false');
+    else if (filter === 'fake') url.searchParams.append('is_fake', 'true');
+    else if (filter !== 'all') url.searchParams.append('category', filter);
+    if (q) url.searchParams.append('search', q);
+    return url;
+  };
+
   const fetchStats = async () => {
     try {
       const res = await fetch('http://localhost:8000/api/stats');
@@ -23,44 +40,72 @@ function App() {
     }
   };
 
-  const fetchArticles = async (targetPage = 1) => {
+  // Prefetch a page silently into cache (no loading state change)
+  const prefetchPage = useCallback(async (filter, q, p) => {
+    if (p < 1) return;
+    const key = buildCacheKey(filter, q, p);
+    if (pageCache.current[key]) return; // already cached
+    try {
+      const res = await fetch(buildUrl(filter, q, p));
+      if (!res.ok) return;
+      const data = await res.json();
+      pageCache.current[key] = data;
+    } catch (_) {}
+  }, []);
+
+  const fetchArticles = useCallback(async (targetPage = 1, filter = currentFilter, q = search) => {
+    const key = buildCacheKey(filter, q, targetPage);
+
+    // Serve instantly from cache if available
+    if (pageCache.current[key]) {
+      const cached = pageCache.current[key];
+      setArticles(cached.items || []);
+      setPage(targetPage);
+      setTotalPages(cached.pages || 0);
+      setLoading(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      prefetchPage(filter, q, targetPage + 1);
+      prefetchPage(filter, q, targetPage - 1);
+      return;
+    }
+
+    // Cancel any previous in-flight request
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     try {
-      let url = new URL('http://localhost:8000/api/articles');
-      url.searchParams.append('page', targetPage.toString());
-      url.searchParams.append('limit', '40');
-      
-      if (currentFilter === 'real') url.searchParams.append('is_fake', 'false');
-      else if (currentFilter === 'fake') url.searchParams.append('is_fake', 'true');
-      else if (currentFilter !== 'all') url.searchParams.append('category', currentFilter);
-      
-      if (search) url.searchParams.append('search', search);
-
-      const res = await fetch(url);
+      const res = await fetch(buildUrl(filter, q, targetPage), { signal: controller.signal });
       const data = await res.json();
-      
+      pageCache.current[key] = data;
       setArticles(data.items || []);
       setPage(targetPage);
       setTotalPages(data.pages || 0);
-      
-      // Auto-scroll to top when page changes
       window.scrollTo({ top: 0, behavior: 'smooth' });
+
+      // Prefetch neighbours
+      prefetchPage(filter, q, targetPage + 1);
+      prefetchPage(filter, q, targetPage - 1);
     } catch (err) {
-      console.error("Failed to fetch articles", err);
+      if (err.name !== 'AbortError') {
+        console.error("Failed to fetch articles", err);
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentFilter, search, prefetchPage]);
 
   useEffect(() => {
     fetchStats();
   }, []);
 
   useEffect(() => {
+    // Clear cache when filter or search changes
+    pageCache.current = {};
     const delayDebounceFn = setTimeout(() => {
-      fetchArticles(1);
-    }, 300);
-
+      fetchArticles(1, currentFilter, search);
+    }, 400); // Reduced debounce — API is fast enough now
     return () => clearTimeout(delayDebounceFn);
   }, [currentFilter, search]);
 

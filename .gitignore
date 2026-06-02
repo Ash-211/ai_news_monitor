@@ -23,19 +23,3 @@ venv.bak/
 
 # macOS
 .DS_Store
-
-# Large ML model files (train locally with fake_news.py / classifier.py)
-models/*.pkl
-
-# Database (generated at runtime)
-data/*.sqlite
-data/*.db
-
-# Node modules
-dashboard/node_modules/
-
-# Logs
-logs/
-
-# Scratch / temp test scripts
-scratch/

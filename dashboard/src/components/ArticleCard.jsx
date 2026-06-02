@@ -86,28 +86,10 @@ const ArticleCard = ({ article }) => {
               </div>
             )}
             
-            {details.penalty_applied < 0 && (
-              <div className="breakdown-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.4rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                  <span className="breakdown-label">Quality Penalty</span>
-                  <span className="breakdown-value minus">{Math.round(details.penalty_applied * 100)}%</span>
-                </div>
-                {details.penalty_reasons && details.penalty_reasons.length > 0 && (
-                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, width: '100%' }}>
-                    {details.penalty_reasons.map((reason, i) => (
-                      <li key={i} style={{ fontSize: '0.75rem', color: 'var(--danger)', opacity: 0.85, paddingLeft: '0.5rem', lineHeight: 1.5 }}>
-                        ↳ {reason}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-            
-            {(details.corroboration_count > 0 || details.corroboration_boost > 0) && (
+            {(details.corroboration_count > 0 || details.bonus_applied > 0) && (
               <div className="breakdown-item">
                 <span className="breakdown-label">Cross-Reference Bonus</span>
-                <span className="breakdown-value plus">+{Math.round((details.corroboration_boost || 0.10) * 100)}%</span>
+                <span className="breakdown-value plus">Enabled</span>
               </div>
             )}
 

@@ -61,11 +61,13 @@ class RSSFetcher:
 def save_articles_to_db(raw_articles, source_type="NewsAPI"):
     """
     Takes raw articles from fetchers and saves them to the SQLite database.
-    Prevents duplicates using URL uniqueness.
+    Prevents duplicates using URL uniqueness. All inserts are batched into a
+    single transaction to minimise SQLite write-lock contention.
     """
     session = get_session()
     saved_count = 0
-    
+    articles_to_add = []
+
     for item in raw_articles:
         # Standardize article payload
         title = item.get('title')
@@ -104,26 +106,41 @@ def save_articles_to_db(raw_articles, source_type="NewsAPI"):
         else:
             pub_date = datetime.utcnow()
 
-        # Create model instance
-        article = Article(
+        articles_to_add.append(Article(
             title=title,
             url=url,
             source=source,
             author=author,
             published_at=pub_date,
             raw_content=raw_content
-        )
-        
-        session.add(article)
-        try:
-            session.commit()
-            saved_count += 1
-        except IntegrityError:
-            # Reached a duplicate URL constraint, safe to ignore
-            session.rollback()
-        except Exception as e:
-            print(f"Error saving to DB: {e}")
-            session.rollback()
+        ))
+
+    if not articles_to_add:
+        session.close()
+        return 0
+
+    # Attempt a fast single-transaction bulk insert
+    try:
+        session.add_all(articles_to_add)
+        session.commit()
+        saved_count = len(articles_to_add)
+    except IntegrityError:
+        # Batch had duplicate URLs — fall back to row-by-row to skip dupes
+        session.rollback()
+        saved_count = 0
+        for article in articles_to_add:
+            session.add(article)
+            try:
+                session.commit()
+                saved_count += 1
+            except IntegrityError:
+                session.rollback()  # skip duplicate
+            except Exception as e:
+                print(f"Error saving to DB: {e}")
+                session.rollback()
+    except Exception as e:
+        print(f"Error saving batch to DB: {e}")
+        session.rollback()
             
     session.close()
     return saved_count

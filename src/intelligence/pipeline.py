@@ -27,15 +27,6 @@ def run_intelligence_pipeline():
     session = get_session()
 
     try:
-        # Clean up suspiciously low scores from old/mismatched model pkl files
-        stale_count = session.query(Article).filter(
-            Article.credibility_score < 0.08,
-            Article.is_fake == True
-        ).update({Article.is_fake: None, Article.credibility_score: None})
-        if stale_count:
-            session.commit()
-            print(f"  [Cleanup] Reset {stale_count} stale low-score articles for re-processing.")
-
         # Fetch articles that need processing
         # An article needs processing if ANY intelligence field is NULL
         articles = session.query(Article).filter(

@@ -415,7 +415,6 @@ def _apply_scoring_heuristics(title, content, content_score, source=None, corrob
         "corroboration_boost": 0.0,
         "verification_boost": 0.0,
         "penalty": 0.0,
-        "penalty_reasons": [],
         "fact_check": None
     }
     
@@ -440,7 +439,6 @@ def _apply_scoring_heuristics(title, content, content_score, source=None, corrob
     if not is_trusted and corroboration_count == 0:
         breakdown["penalty"] -= 0.15
         final_score -= 0.15
-        breakdown["penalty_reasons"].append("No corroborating sources found")
 
     # 5. Quality Penalties
     if quality["is_low_quality"]:
@@ -448,19 +446,8 @@ def _apply_scoring_heuristics(title, content, content_score, source=None, corrob
         is_severe = quality["has_profanity"] or quality["is_random"]
         
         penalty_amount = 0.45
-        if quality["has_profanity"]:
-            penalty_amount = 0.7
-            breakdown["penalty_reasons"].append("Contains profanity or offensive language")
-        if quality["is_random"] or quality["bad_capitalization"]:
-            penalty_amount = 0.55
-            if quality["is_random"]:
-                breakdown["penalty_reasons"].append("Text appears random or nonsensical")
-            if quality["bad_capitalization"]:
-                breakdown["penalty_reasons"].append("Poor or inconsistent capitalization")
-        if quality["is_repetitive"]:
-            breakdown["penalty_reasons"].append("Highly repetitive text detected")
-        if quality["lacks_structure"]:
-            breakdown["penalty_reasons"].append("Lacks article structure (low function word ratio)")
+        if quality["has_profanity"]: penalty_amount = 0.7
+        if quality["is_random"] or quality["bad_capitalization"]: penalty_amount = 0.55
         
         # Halve the penalty for trusted sources unless it's severe (profanity/nonsense)
         if is_trusted and not is_severe:
@@ -479,7 +466,6 @@ def _apply_scoring_heuristics(title, content, content_score, source=None, corrob
         
         breakdown["penalty"] -= applied_word_penalty
         final_score -= applied_word_penalty
-        breakdown["penalty_reasons"].append(f"Article too short ({quality['word_count']} words, min {MIN_NEWS_WORDS})")
 
     # 7. External Verification Boost/Penalty (NewsAPI + Google Fact Check)
     if verification_result and isinstance(verification_result, dict):
