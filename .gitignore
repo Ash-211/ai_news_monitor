@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+env/
+.env
+
+# Large AI Models and Data
+models/
+data/
+src/maintenance/data/
+*.safetensors
+*.pkl
+*.sqlite
+*.db
+
+# Node Modules
+node_modules/
+dashboard/node_modules/
+dist/
+build/
+
+# OS generated files
+.DS_Store
+Thumbs.db
