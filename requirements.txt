@@ -31,3 +31,10 @@ seaborn==0.13.2
 # API Backend
 fastapi==0.109.2
 uvicorn==0.27.1
+
+# Database (PostgreSQL support for Neon)
+psycopg2-binary==2.9.9
+
+# Discord Bot
+discord.py==2.5.2
+aiohttp>=3.9.0

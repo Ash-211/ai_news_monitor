@@ -3,11 +3,54 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
-from src.ingestion.database import Article
+from src.ingestion.database import Article, _is_postgres
 import os, time, hashlib, json
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ── Singleton engine & session factory (created ONCE at import time) ──────────
 def _build_engine():
+    db_url = os.getenv('DATABASE_URL', '').strip()
+
+    if db_url and db_url.startswith('postgresql'):
+        # ── Cloud PostgreSQL (Neon) ──
+        engine = create_engine(db_url, echo=False, pool_pre_ping=True)
+        with engine.connect() as conn:
+            # Create standard B-tree indexes (same purpose as before)
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles (published_at DESC)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_articles_category      ON articles (category)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_articles_is_fake       ON articles (is_fake)"))
+
+            # PostgreSQL Full-Text Search: add a tsvector column + GIN index
+            # Step 1: Add the column if it doesn't exist
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'articles' AND column_name = 'search_vector'
+                    ) THEN
+                        ALTER TABLE articles ADD COLUMN search_vector tsvector;
+                    END IF;
+                END $$;
+            """))
+            # Step 2: Create GIN index on the tsvector column
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_articles_fts ON articles USING GIN (search_vector)
+            """))
+            # Step 3: Populate the search_vector for existing rows that are NULL
+            conn.execute(text("""
+                UPDATE articles
+                SET search_vector = to_tsvector('english',
+                    COALESCE(title, '') || ' ' || COALESCE(keywords, '') || ' ' || COALESCE(source, '')
+                )
+                WHERE search_vector IS NULL
+            """))
+            conn.commit()
+        return engine, sessionmaker(bind=engine)
+
+    # ── Fallback: Local SQLite ──
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     db_file = os.path.join(base_dir, 'data', 'database.sqlite')
     if not os.path.exists(db_file):
@@ -17,7 +60,7 @@ def _build_engine():
         echo=False,
         connect_args={"timeout": 15, "check_same_thread": False},
     )
-    # Create indexes + FTS5 table once at startup
+    # Create indexes + FTS5 table once at startup (SQLite only)
     with engine.connect() as conn:
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles (published_at DESC)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_articles_category      ON articles (category)"))
@@ -74,18 +117,29 @@ def get_session():
     finally:
         session.close()
 
-# ── Keep FTS in sync: call after ingestion inserts new articles ───────────────
+# ── Keep search index in sync: call after ingestion inserts new articles ──────
 def refresh_fts():
-    """Sync the FTS5 index with any newly inserted articles."""
+    """Sync the search index with any newly inserted articles."""
     if _engine is None:
         return
     with _engine.connect() as conn:
-        conn.execute(text("""
-            INSERT OR IGNORE INTO articles_fts(rowid, title, keywords, source)
-            SELECT id, COALESCE(title,''), COALESCE(keywords,''), COALESCE(source,'')
-            FROM articles
-            WHERE id NOT IN (SELECT rowid FROM articles_fts)
-        """))
+        if _is_postgres():
+            # PostgreSQL: update tsvector for rows where it's NULL
+            conn.execute(text("""
+                UPDATE articles
+                SET search_vector = to_tsvector('english',
+                    COALESCE(title, '') || ' ' || COALESCE(keywords, '') || ' ' || COALESCE(source, '')
+                )
+                WHERE search_vector IS NULL
+            """))
+        else:
+            # SQLite: sync FTS5 virtual table
+            conn.execute(text("""
+                INSERT OR IGNORE INTO articles_fts(rowid, title, keywords, source)
+                SELECT id, COALESCE(title,''), COALESCE(keywords,''), COALESCE(source,'')
+                FROM articles
+                WHERE id NOT IN (SELECT rowid FROM articles_fts)
+            """))
         conn.commit()
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -178,21 +232,34 @@ def get_articles(
         if session is None:
             return {"items": [], "total": 0, "page": page, "pages": 0}
 
-        # Use FTS5 for search queries (orders of magnitude faster than LIKE)
+        # Use full-text search for search queries
         if search and search.strip():
-            fts_term = search.strip().replace('"', '""')
-            # FTS5 match — search title, keywords, and source
-            fts_sql = text("""
-                SELECT rowid FROM articles_fts
-                WHERE articles_fts MATCH :term
-                ORDER BY rank
-            """)
-            try:
-                fts_rows = session.execute(fts_sql, {"term": f'"{fts_term}"'}).fetchall()
-                matched_ids = [r[0] for r in fts_rows]
-            except Exception:
-                # Fallback: if FTS fails (e.g. special chars), use LIKE
-                matched_ids = None
+            if _is_postgres():
+                # PostgreSQL: use tsvector/tsquery
+                fts_term = search.strip().replace("'", "''")
+                # plainto_tsquery handles multi-word input safely
+                fts_sql = text("""
+                    SELECT id FROM articles
+                    WHERE search_vector @@ plainto_tsquery('english', :term)
+                """)
+                try:
+                    fts_rows = session.execute(fts_sql, {"term": fts_term}).fetchall()
+                    matched_ids = [r[0] for r in fts_rows]
+                except Exception:
+                    matched_ids = None
+            else:
+                # SQLite: use FTS5 virtual table
+                fts_term = search.strip().replace('"', '""')
+                fts_sql = text("""
+                    SELECT rowid FROM articles_fts
+                    WHERE articles_fts MATCH :term
+                    ORDER BY rank
+                """)
+                try:
+                    fts_rows = session.execute(fts_sql, {"term": f'"{fts_term}"'}).fetchall()
+                    matched_ids = [r[0] for r in fts_rows]
+                except Exception:
+                    matched_ids = None
 
             if matched_ids is not None:
                 if not matched_ids:

@@ -10,11 +10,8 @@ env/
 .env
 
 # Large AI Models and Data
-models/
 data/
 src/maintenance/data/
-*.safetensors
-*.pkl
 *.sqlite
 *.db
 

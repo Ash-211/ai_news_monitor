@@ -2,6 +2,10 @@ import os
 from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, Float
 from sqlalchemy.orm import declarative_base, sessionmaker
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Define base class for SQLAlchemy models
 Base = declarative_base()
@@ -39,12 +43,44 @@ class Article(Base):
     def __repr__(self):
         return f"<Article(title='{self.title[:30]}...', source='{self.source}')>"
 
+
+class DiscordSubscription(Base):
+    """
+    Tracks which Discord channels are subscribed to receive
+    the automated daily news drops from the bot.
+    """
+    __tablename__ = 'discord_subscriptions'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    server_id = Column(String, nullable=False)          # Discord Guild ID
+    channel_id = Column(String, unique=True, nullable=False)  # Discord Channel ID
+    category = Column(String, nullable=True)            # Optional: filter by category (e.g., "Sci/Tech")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<DiscordSubscription(server={self.server_id}, channel={self.channel_id})>"
+
+
+def _is_postgres():
+    """Check if the configured database is PostgreSQL."""
+    db_url = os.getenv('DATABASE_URL', '')
+    return db_url.startswith('postgresql')
+
+
 def get_engine():
     """
     Initializes and returns the database engine.
-    For this project, we are using a local SQLite database in the data/ folder.
+    Uses DATABASE_URL from .env if available (Neon PostgreSQL),
+    otherwise falls back to local SQLite.
     """
-    # Ensure data directory exists relative to project root
+    db_url = os.getenv('DATABASE_URL', '').strip()
+
+    if db_url and db_url.startswith('postgresql'):
+        # Cloud PostgreSQL (Neon) — no SQLite-specific args needed
+        engine = create_engine(db_url, echo=False, pool_pre_ping=True)
+        return engine
+
+    # Fallback: Local SQLite
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     data_dir = os.path.join(base_dir, 'data')
     os.makedirs(data_dir, exist_ok=True)
@@ -54,7 +90,8 @@ def get_engine():
 
 def init_db():
     """
-    Creates all tables in the SQLite database based on defined models.
+    Creates all tables in the database based on defined models.
+    Works for both SQLite and PostgreSQL.
     """
     engine = get_engine()
     Base.metadata.create_all(engine)
