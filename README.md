@@ -1,3 +1,12 @@
+---
+title: AI News API
+emoji: 📰
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 # AI-Based News Monitoring and Automated Daily Briefing System
 
 An end-to-end 5-layer pipeline that ingests, cleans, classifies, and summarizes news articles, served on a web dashboard.
