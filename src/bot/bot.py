@@ -68,9 +68,9 @@ async def main():
     await start_keepalive_server()
 
     # Start the bot (this blocks until the bot disconnects)
-    token = os.getenv("DISCORD_BOT_TOKEN")
+    token = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
     if not token:
-        print("❌ ERROR: DISCORD_BOT_TOKEN not found in .env")
+        print("❌ ERROR: DISCORD_BOT_TOKEN or DISCORD_TOKEN not found in environment")
         print("   Get your token from https://discord.com/developers/applications")
         return
 
