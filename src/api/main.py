@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
-from src.ingestion.database import Article, _is_postgres
+from src.ingestion.database import Article, _is_postgres, Base
 import os, time, hashlib, json
 from dotenv import load_dotenv
 
@@ -16,6 +16,8 @@ def _build_engine():
     if db_url and db_url.startswith('postgresql'):
         # ── Cloud PostgreSQL (Neon) ──
         engine = create_engine(db_url, echo=False, pool_pre_ping=True)
+        # Ensure tables are created in the database first
+        Base.metadata.create_all(engine)
         with engine.connect() as conn:
             # Create standard B-tree indexes (same purpose as before)
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles (published_at DESC)"))
