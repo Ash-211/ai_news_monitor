@@ -1,162 +1,190 @@
 """
-News Commands Cog
-Implements all custom slash commands for the AI News Discord Bot:
-  /newsdaily       — Today's top news
-  /news            — Search by date or tag
-  /newscategories  — Interactive category dropdown
-  /setup_daily     — Admin command to register channel for daily drops
-  /remove_daily    — Admin command to unregister channel
+news_commands.py — Slash-command cog for the AI News Pipeline bot.
+
+Commands:
+    /newsdaily         – Show today's top articles.
+    /news              – Search articles by date and/or tag.
+    /newscategories    – Interactive category picker for today's news.
+    /setup_daily       – Subscribe this channel to the daily news broadcast.
+    /remove_daily      – Unsubscribe this channel from the daily news broadcast.
+
+Helpers (importable by other cogs):
+    build_article_embed(article)  – Returns a styled discord.Embed.
+    build_article_view(article)   – Returns a discord.ui.View with a URL button.
 """
 
-import discord
-from discord.ext import commands
-from discord import app_commands
+from __future__ import annotations
+
+import logging
 from datetime import datetime, date, timedelta
 from typing import Optional, List
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine, func
-from src.ingestion.database import Article, DiscordSubscription, get_engine
-import os
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+from sqlalchemy import func
+
+from src.ingestion.database import Article, DiscordSubscription, get_session
+
+logger = logging.getLogger("ai_news_bot.news_commands")
+
+# ── Colour palette for credibility badges ──────────────────────────────────
+COLOR_CREDIBLE   = discord.Colour(0x2ECC71)  # Green  – score >= 0.6
+COLOR_UNCERTAIN  = discord.Colour(0xF39C12)  # Orange – 0.4 <= score < 0.6
+COLOR_FLAGGED    = discord.Colour(0xE74C3C)  # Red    – score < 0.4
+COLOR_DEFAULT    = discord.Colour(0x3498DB)  # Blue   – score is None
+
+MAX_EMBED_ARTICLES = 10  # Cap for interactive commands
+MAX_SUMMARY_LEN    = 200
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Helper Functions (shared with scheduler cog)
+# ════════════════════════════════════════════════════════════════════════════
+
+def _credibility_colour(score: Optional[float]) -> discord.Colour:
+    """Return an embed colour based on the article's credibility score."""
+    if score is None:
+        return COLOR_DEFAULT
+    if score >= 0.6:
+        return COLOR_CREDIBLE
+    if score >= 0.4:
+        return COLOR_UNCERTAIN
+    return COLOR_FLAGGED
 
 
-# ── Constants ─────────────────────────────────────────────────────────────────
-MAX_ARTICLES_PER_EMBED = 5        # How many articles to show per command
-EMBED_COLOR_PRIMARY = 0x5865F2    # Discord blurple
-EMBED_COLOR_SUCCESS = 0x57F287    # Green
-EMBED_COLOR_ERROR = 0xED4245      # Red
-EMBED_COLOR_WARNING = 0xFEE75C    # Yellow
+def _credibility_label(score: Optional[float]) -> str:
+    """Human-friendly label for the credibility score."""
+    if score is None:
+        return "N/A"
+    if score >= 0.6:
+        return f"✅ {score:.0%}"
+    if score >= 0.4:
+        return f"⚠️ {score:.0%}"
+    return f"🚩 {score:.0%}"
 
 
-# ── Helper Functions ──────────────────────────────────────────────────────────
-# ── Helper Functions & Pagination View ──────────────────────────────────────────
-def _get_session():
-    """Create a fresh database session."""
-    engine = get_engine()
-    Session = sessionmaker(bind=engine)
-    return Session()
+def _article_summary(article: Article) -> str:
+    """Pick the best available summary text, truncated to MAX_SUMMARY_LEN."""
+    text = (
+        article.summary_abstractive
+        or article.summary_extractive
+        or article.clean_content
+        or article.raw_content
+        or "No summary available."
+    )
+    if len(text) > MAX_SUMMARY_LEN:
+        text = text[:MAX_SUMMARY_LEN].rsplit(" ", 1)[0] + "…"
+    return text
 
 
-def fetch_articles(
-    category: str = None,
-    target_date: date = None,
-    tag: str = None,
-    offset: int = 0,
-    limit: int = 5,
-) -> list:
+def build_article_embed(article: Article) -> discord.Embed:
     """
-    Unified query function supporting category, date, and keyword search filters, with pagination offset.
+    Build a beautifully formatted Discord embed for a single article.
+
+    Layout:
+        Title        → embed title (linked to article URL)
+        Description  → truncated summary
+        Fields       → Category, Credibility
+        Footer       → source & published date
+        Colour       → based on credibility score
     """
-    session = _get_session()
-    try:
-        query = session.query(Article)
-        
-        if target_date:
-            next_day = target_date + timedelta(days=1)
-            query = query.filter(
-                Article.published_at >= datetime.combine(target_date, datetime.min.time()),
-                Article.published_at < datetime.combine(next_day, datetime.min.time()),
-            )
-            
-        if category and category.lower() != "all":
-            query = query.filter(Article.category.ilike(f"%{category.strip()}%"))
-            
-        if tag:
-            tag_term = tag.strip()
-            query = query.filter(
-                (Article.title.ilike(f"%{tag_term}%")) |
-                (Article.keywords.ilike(f"%{tag_term}%")) |
-                (Article.category.ilike(f"%{tag_term}%"))
-            )
-            
-        return query.order_by(Article.published_at.desc()).offset(offset).limit(limit).all()
-    finally:
-        session.close()
-
-
-def get_fallback_date(category: str = None, tag: str = None) -> Optional[date]:
-    """
-    Finds the date of the most recent article, optionally filtered by category or tag.
-    """
-    session = _get_session()
-    try:
-        query = session.query(Article)
-        if category and category.lower() != "all":
-            query = query.filter(Article.category.ilike(f"%{category.strip()}%"))
-        if tag:
-            tag_term = tag.strip()
-            query = query.filter(
-                (Article.title.ilike(f"%{tag_term}%")) |
-                (Article.keywords.ilike(f"%{tag_term}%")) |
-                (Article.category.ilike(f"%{tag_term}%"))
-            )
-        latest = query.order_by(Article.published_at.desc()).first()
-        return latest.published_at.date() if latest and latest.published_at else None
-    finally:
-        session.close()
-
-
-def _build_article_embed(article, index: int = None) -> discord.Embed:
-    """
-    Builds a compact, beautiful Discord embed for a single article.
-    Shows: Title, Summary, Credibility badge, Category, and a link button.
-    """
-    # Determine credibility badge
-    score = article.credibility_score or 0.5
-    if score >= 0.7:
-        badge = "✅ Verified"
-        color = EMBED_COLOR_SUCCESS
-    elif score >= 0.4:
-        badge = "⚠️ Uncertain"
-        color = EMBED_COLOR_WARNING
-    else:
-        badge = "🚨 Flagged"
-        color = EMBED_COLOR_ERROR
-
-    # Build summary text (truncated to fit Discord limits)
-    summary = ""
-    if article.clean_content:
-        summary = article.clean_content[:300] + "..." if len(article.clean_content) > 300 else article.clean_content
-    elif article.raw_content:
-        summary = article.raw_content[:300] + "..." if len(article.raw_content) > 300 else article.raw_content
-    else:
-        summary = "No summary available."
-
-    # Title with optional index number
-    title = article.title or "Untitled Article"
-    if index is not None:
-        title = f"{index}. {title}"
-    if len(title) > 253:
-        title = title[:250] + "..."
-
     embed = discord.Embed(
-        title=title,
-        description=summary,
-        color=color,
+        title=article.title or "Untitled Article",
         url=article.url,
+        description=_article_summary(article),
+        colour=_credibility_colour(article.credibility_score),
+        timestamp=article.published_at or datetime.utcnow(),
     )
 
-    embed.add_field(name="📊 Credibility", value=f"{badge} ({int(score * 100)}%)", inline=True)
-    embed.add_field(name="📂 Category", value=article.category or "General", inline=True)
-    embed.add_field(name="📰 Source", value=article.source or "Unknown", inline=True)
+    # Category badge
+    category_display = article.category or "Uncategorised"
+    embed.add_field(name="📂 Category", value=category_display, inline=True)
 
-    if article.published_at:
-        embed.timestamp = article.published_at
+    # Credibility badge
+    embed.add_field(
+        name="🛡️ Credibility",
+        value=_credibility_label(article.credibility_score),
+        inline=True,
+    )
 
-    embed.set_footer(text="AI News Monitor • Powered by DistilBERT")
+    # Source & timestamp footer
+    source_text = article.source or "Unknown Source"
+    embed.set_footer(text=f"Source: {source_text} • AI News Pipeline")
 
     return embed
 
 
-def _build_article_view(article) -> discord.ui.View:
-    """Creates a View with a 'Read Full Article' button linking to the source."""
+def build_article_view(article: Article) -> discord.ui.View:
+    """
+    Return a View with a single URL button linking to the full article.
+    URL buttons do not require an interaction callback.
+    """
     view = discord.ui.View()
-    if article.url:
-        view.add_item(discord.ui.Button(
-            label="📖 Read Full Article",
-            url=article.url,
+    view.add_item(
+        discord.ui.Button(
+            label="Read Full Article",
             style=discord.ButtonStyle.link,
-        ))
+            url=article.url,
+            emoji="📰",
+        )
+    )
     return view
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Internal DB query helpers & Pagination View
+# ════════════════════════════════════════════════════════════════════════════
+
+def fetch_articles(
+    session,
+    category: Optional[str] = None,
+    target_date: Optional[date] = None,
+    tag: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 5,
+) -> List[Article]:
+    """
+    Unified query function supporting category, date, and keyword search filters, with pagination offset.
+    Requires an active database session.
+    """
+    query = session.query(Article)
+    
+    if target_date:
+        start = datetime.combine(target_date, datetime.min.time())
+        end = datetime.combine(target_date + timedelta(days=1), datetime.min.time())
+        query = query.filter(Article.published_at >= start, Article.published_at < end)
+        
+    if category and category.lower() != "all":
+        query = query.filter(func.lower(Article.category) == category.lower())
+        
+    if tag:
+        tag_term = tag.strip()
+        query = query.filter(
+            (Article.title.ilike(f"%{tag_term}%")) |
+            (Article.keywords.ilike(f"%{tag_term}%")) |
+            (Article.category.ilike(f"%{tag_term}%"))
+        )
+        
+    return query.order_by(Article.published_at.desc()).offset(offset).limit(limit).all()
+
+
+def get_fallback_date(session, category: Optional[str] = None, tag: Optional[str] = None) -> Optional[date]:
+    """
+    Finds the date of the most recent article, optionally filtered by category or tag.
+    Requires an active database session.
+    """
+    query = session.query(Article)
+    if category and category.lower() != "all":
+        query = query.filter(func.lower(Article.category) == category.lower())
+    if tag:
+        tag_term = tag.strip()
+        query = query.filter(
+            (Article.title.ilike(f"%{tag_term}%")) |
+            (Article.keywords.ilike(f"%{tag_term}%")) |
+            (Article.category.ilike(f"%{tag_term}%"))
+        )
+    latest = query.order_by(Article.published_at.desc()).first()
+    return latest.published_at.date() if latest and latest.published_at else None
 
 
 class NewsPaginationView(discord.ui.View):
@@ -183,17 +211,16 @@ class NewsPaginationView(discord.ui.View):
         self.search_tag = search_tag
         self.start_index = start_index
 
-        # 1. Read Full Article Button
         if article_url:
             self.add_item(
                 discord.ui.Button(
-                    label="📖 Read Full Article",
-                    url=article_url,
+                    label="Read Full Article",
                     style=discord.ButtonStyle.link,
+                    url=article_url,
+                    emoji="📰",
                 )
             )
 
-        # 2. Show More Button
         self.show_more_btn = discord.ui.Button(
             label="Show More ➡️",
             style=discord.ButtonStyle.secondary,
@@ -204,478 +231,511 @@ class NewsPaginationView(discord.ui.View):
 
     async def show_more_callback(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
-
-        # Disable/remove the Show More button on this message to prevent re-clicks
         self.remove_item(self.show_more_btn)
         await interaction.message.edit(view=self)
 
         limit = 6
-        batch = fetch_articles(
-            category=self.category,
-            target_date=self.search_date,
-            tag=self.search_tag,
-            offset=self.offset,
-            limit=limit,
-        )
-
-        if not batch:
-            await interaction.followup.send(
-                content="📭 No more articles found.", ephemeral=True
+        session = get_session()
+        try:
+            batch = fetch_articles(
+                session,
+                category=self.category,
+                target_date=self.search_date,
+                tag=self.search_tag,
+                offset=self.offset,
+                limit=limit,
             )
-            return
 
-        display_count = min(len(batch), 5)
-        for i in range(display_count):
-            article = batch[i]
-            current_index = self.start_index + i
-            is_last = (i == display_count - 1)
-            has_more = (len(batch) > 5)
+            if not batch:
+                await interaction.followup.send(content="📭 No more articles found.", ephemeral=True)
+                return
 
-            if is_last and has_more:
-                view = NewsPaginationView(
-                    command_type=self.command_type,
-                    offset=self.offset + 5,
-                    category=self.category,
-                    search_date=self.search_date,
-                    search_tag=self.search_tag,
-                    article_url=article.url,
-                    start_index=current_index + 1,
+            display_count = min(len(batch), 5)
+            for i in range(display_count):
+                article = batch[i]
+                current_index = self.start_index + i
+                is_last = (i == display_count - 1)
+                has_more = (len(batch) > 5)
+
+                if is_last and has_more:
+                    view = NewsPaginationView(
+                        command_type=self.command_type,
+                        offset=self.offset + 5,
+                        category=self.category,
+                        search_date=self.search_date,
+                        search_tag=self.search_tag,
+                        article_url=article.url,
+                        start_index=current_index + 1,
+                    )
+                else:
+                    view = build_article_view(article)
+                
+                await interaction.followup.send(
+                    embed=build_article_embed(article), 
+                    view=view
                 )
-            else:
-                view = _build_article_view(article)
-
-            await interaction.followup.send(
-                embed=_build_article_embed(article, index=current_index),
-                view=view,
-            )
+        finally:
+            session.close()
 
 
-# ── Category Select Menu ─────────────────────────────────────────────────────
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Category Select Menu
+# ════════════════════════════════════════════════════════════════════════════
+
 class CategorySelect(discord.ui.Select):
     """Dropdown menu that lists all available news categories."""
 
-    def __init__(self, categories: list):
-        options = []
-        for cat in categories:
-            options.append(discord.SelectOption(
-                label=cat,
-                value=cat,
-                description=f"View today's {cat} news",
-                emoji="📰",
-            ))
+    def __init__(self, options_list: list[discord.SelectOption]) -> None:
         super().__init__(
             placeholder="🔍 Select a news category...",
             min_values=1,
             max_values=1,
-            options=options,
+            options=options_list,
         )
 
-    async def callback(self, interaction: discord.Interaction):
-        selected_category = self.values[0]
-        await interaction.response.defer(thinking=True)
+    async def callback(self, interaction: discord.Interaction) -> None:
+        chosen = self.values[0]
+        await interaction.response.defer()
 
-        target_date = date.today()
-        test_articles = fetch_articles(category=selected_category, target_date=target_date, limit=1)
-        
-        fallback_msg = ""
-        if not test_articles:
-            fallback = get_fallback_date(category=selected_category)
-            if fallback:
-                target_date = fallback
-                fallback_msg = f" (No news today. Showing the most recent articles from **{target_date.strftime('%B %d, %Y')}** instead)"
-            else:
-                target_date = None
+        session = get_session()
+        try:
+            # Check if today has articles in this category, otherwise fall back to latest date
+            target_date = date.today()
+            test_articles = fetch_articles(session, category=chosen, target_date=target_date, limit=1)
+            
+            fallback_msg = ""
+            if not test_articles:
+                fallback = get_fallback_date(session, category=chosen)
+                if fallback:
+                    target_date = fallback
+                    fallback_msg = f" (No news today. Showing news from **{target_date}** instead)"
+                else:
+                    target_date = None
 
-        if not target_date:
-            await interaction.followup.send(
-                embed=discord.Embed(
-                    title="❌ No News Found",
-                    description=f"No articles found for category **{selected_category}**.",
-                    color=EMBED_COLOR_ERROR,
+            if not target_date:
+                embed = discord.Embed(
+                    title="📭 No News Found",
+                    description=f"No articles found for **{chosen}** in the database.",
+                    colour=COLOR_DEFAULT,
                 )
-            )
-            return
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
 
-        batch = fetch_articles(category=selected_category, target_date=target_date, offset=0, limit=6)
-
-        header = discord.Embed(
-            title=f"📂 {selected_category} News",
-            description=f"Showing top {min(len(batch), 5)} article(s) for **{selected_category}**{fallback_msg}",
-            color=EMBED_COLOR_PRIMARY if not fallback_msg else EMBED_COLOR_WARNING,
-        )
-        await interaction.followup.send(embed=header)
-        
-        display_count = min(len(batch), 5)
-        for i in range(display_count):
-            article = batch[i]
-            is_last = (i == display_count - 1)
-            has_more = (len(batch) > 5)
-
-            if is_last and has_more:
-                view = NewsPaginationView(
-                    command_type="category",
-                    offset=5,
-                    category=selected_category,
-                    search_date=target_date,
-                    article_url=article.url,
-                    start_index=i + 2,
-                )
-            else:
-                view = _build_article_view(article)
-
+            # Fetch page 1 (limit 6)
+            batch = fetch_articles(session, category=chosen, target_date=target_date, offset=0, limit=6)
+            
             await interaction.followup.send(
-                embed=_build_article_embed(article, index=i + 1),
-                view=view,
+                content=f"📂 **{chosen}** — {min(len(batch), 5)} article(s) shown{fallback_msg}:",
+                ephemeral=False,
             )
+
+            display_count = min(len(batch), 5)
+            for i in range(display_count):
+                article = batch[i]
+                is_last = (i == display_count - 1)
+                has_more = (len(batch) > 5)
+
+                if is_last and has_more:
+                    view = NewsPaginationView(
+                        command_type="category",
+                        offset=5,
+                        category=chosen,
+                        search_date=target_date,
+                        article_url=article.url,
+                    )
+                else:
+                    view = build_article_view(article)
+
+                await interaction.followup.send(
+                    embed=build_article_embed(article),
+                    view=view,
+                )
+        finally:
+            session.close()
 
 
 class CategoryView(discord.ui.View):
-    """View wrapper for the category dropdown."""
+    """Wrapper view for the CategorySelect dropdown."""
 
-    def __init__(self, categories: list):
+    def __init__(self, options_list: list[discord.SelectOption]) -> None:
         super().__init__(timeout=120)
-        self.add_item(CategorySelect(categories))
+        self.add_item(CategorySelect(options_list))
 
 
-# ── The Cog ───────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+#  Cog
+# ════════════════════════════════════════════════════════════════════════════
+
 class NewsCommands(commands.Cog):
-    """All news-related slash commands."""
+    """Slash commands for browsing and subscribing to AI-curated news."""
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    # ── /newsdaily ────────────────────────────────────────────────────────
-    @app_commands.command(name="newsdaily", description="📰 Get today's top AI-analyzed news articles")
-    async def newsdaily(self, interaction: discord.Interaction):
-        await interaction.response.defer(thinking=True)
+    # ── /newsdaily ──────────────────────────────────────────────────────────
 
-        target_date = date.today()
-        test_articles = fetch_articles(target_date=target_date, limit=1)
-        
-        fallback_msg = ""
-        if not test_articles:
-            fallback = get_fallback_date()
-            if fallback:
-                target_date = fallback
-                fallback_msg = f" (No news found for today. Showing the most recent articles from **{target_date.strftime('%B %d, %Y')}** instead)"
-            else:
-                target_date = None
+    @app_commands.command(
+        name="newsdaily",
+        description="Get today's top news articles.",
+    )
+    async def newsdaily(self, interaction: discord.Interaction) -> None:
+        """Fetch and display up to 5 articles with pagination."""
+        await interaction.response.defer()
 
-        if not target_date:
-            await interaction.followup.send(
-                embed=discord.Embed(
-                    title="❌ No News Available",
-                    description="The database has no articles yet. The pipeline may still be running.",
-                    color=EMBED_COLOR_ERROR,
-                )
-            )
-            return
-
-        batch = fetch_articles(target_date=target_date, offset=0, limit=6)
-
-        header_title = f"📰 Daily News Briefing — {target_date.strftime('%B %d, %Y')}"
-        if fallback_msg:
-            header_title = f"📰 Latest News Briefing"
+        session = get_session()
+        try:
+            target_date = date.today()
+            test_articles = fetch_articles(session, target_date=target_date, limit=1)
             
-        header = discord.Embed(
-            title=header_title,
-            description=f"Showing top {min(len(batch), 5)} AI-analyzed article(s){fallback_msg}",
-            color=EMBED_COLOR_PRIMARY if not fallback_msg else EMBED_COLOR_WARNING,
-        )
+            fallback_msg = ""
+            if not test_articles:
+                fallback = get_fallback_date(session)
+                if fallback:
+                    target_date = fallback
+                    fallback_msg = f" (No news today. Showing news from **{target_date}** instead)"
+                else:
+                    target_date = None
 
-        await interaction.followup.send(embed=header)
-        
-        display_count = min(len(batch), 5)
-        for i in range(display_count):
-            article = batch[i]
-            is_last = (i == display_count - 1)
-            has_more = (len(batch) > 5)
-
-            if is_last and has_more:
-                view = NewsPaginationView(
-                    command_type="daily",
-                    offset=5,
-                    search_date=target_date,
-                    article_url=article.url,
-                    start_index=i + 2,
+            if not target_date:
+                embed = discord.Embed(
+                    title="📭 No News",
+                    description="No news articles have been found in the database. Check back later!",
+                    colour=COLOR_DEFAULT,
+                    timestamp=datetime.utcnow(),
                 )
-            else:
-                view = _build_article_view(article)
+                embed.set_footer(text="AI News Pipeline")
+                await interaction.followup.send(embed=embed)
+                return
+
+            batch = fetch_articles(session, target_date=target_date, offset=0, limit=6)
 
             await interaction.followup.send(
-                embed=_build_article_embed(article, index=i + 1),
-                view=view,
+                content=f"📰 **Daily News** — {min(len(batch), 5)} article(s) shown{fallback_msg}:"
             )
 
-    # ── /news [date] [tag] ────────────────────────────────────────────────
-    @app_commands.command(name="news", description="🔎 Search news by date or tag/keyword")
+            display_count = min(len(batch), 5)
+            for i in range(display_count):
+                article = batch[i]
+                is_last = (i == display_count - 1)
+                has_more = (len(batch) > 5)
+
+                if is_last and has_more:
+                    view = NewsPaginationView(
+                        command_type="daily",
+                        offset=5,
+                        search_date=target_date,
+                        article_url=article.url,
+                    )
+                else:
+                    view = build_article_view(article)
+
+                await interaction.followup.send(
+                    embed=build_article_embed(article),
+                    view=view,
+                )
+        finally:
+            session.close()
+
+    # ── /news ───────────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="news",
+        description="Search articles by date and/or category tag.",
+    )
     @app_commands.describe(
-        date="Date in YYYY-MM-DD format (e.g. 2026-06-04)",
-        tag="Search by keyword or tag (e.g. 'technology', 'Modi', 'AI')",
+        date="Date to search (YYYY-MM-DD format).",
+        tag="Category / tag to filter by.",
     )
     async def news(
         self,
         interaction: discord.Interaction,
-        date: str = None,
-        tag: str = None,
-    ):
-        await interaction.response.defer(thinking=True)
+        date: Optional[str] = None,
+        tag: Optional[str] = None,
+    ) -> None:
+        """Flexible article search with optional date and tag filters."""
 
-        # Validate: user must provide at least one argument
+        # At least one filter is required.
         if not date and not tag:
-            await interaction.followup.send(
-                embed=discord.Embed(
-                    title="⚠️ Missing Argument",
-                    description="Please provide a **date** (e.g. `2026-06-04`) or a **tag** (e.g. `technology`).\n\n"
-                                "**Usage:**\n"
-                                "`/news date:2026-06-04`\n"
-                                "`/news tag:technology`\n"
-                                "`/news date:2026-06-04 tag:AI`",
-                    color=EMBED_COLOR_WARNING,
-                )
+            embed = discord.Embed(
+                title="❌ Missing Parameters",
+                description="Please provide a **date** or **tag** (or both) to search.",
+                colour=COLOR_FLAGGED,
             )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        target_date = None
-        target_date_str = ""
+        # Parse and validate the date string (if provided).
+        target_date: Optional[date] = None
         if date:
             try:
-                target_date = datetime.strptime(date.strip(), "%Y-%m-%d").date()
-                target_date_str = target_date.strftime("%B %d, %Y")
+                target_date = datetime.strptime(date, "%Y-%m-%d").date()
             except ValueError:
-                await interaction.followup.send(
-                    embed=discord.Embed(
-                        title="❌ Invalid Date Format",
-                        description=f"Could not parse `{date}`. Please use the format **YYYY-MM-DD** (e.g. `2026-06-04`).",
-                        color=EMBED_COLOR_ERROR,
-                    )
+                embed = discord.Embed(
+                    title="❌ Invalid Date",
+                    description="Invalid date format. Please use **YYYY-MM-DD**.",
+                    colour=COLOR_FLAGGED,
                 )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
 
-        # Fetch page 1 (limit 6)
-        batch = fetch_articles(target_date=target_date, tag=tag, offset=0, limit=6)
+        await interaction.response.defer()
 
-        if not batch:
-            desc_parts = []
-            if date:
-                desc_parts.append(f"date **{date}**")
-            if tag:
-                desc_parts.append(f"tag **{tag}**")
-            await interaction.followup.send(
-                embed=discord.Embed(
-                    title="❌ No News Found",
-                    description=f"No articles found for {' and '.join(desc_parts)}.\n\n"
-                                "This could mean:\n"
-                                "• The date format is incorrect\n"
-                                "• No news was ingested for that date\n"
-                                "• The tag doesn't match any articles",
-                    color=EMBED_COLOR_ERROR,
-                )
-            )
-            return
-
-        # Build header
-        title_parts = []
-        if target_date_str:
-            title_parts.append(target_date_str)
-        if tag:
-            title_parts.append(f"#{tag}")
-        header_title = f"🔎 News Results — {' | '.join(title_parts)}"
-
-        header = discord.Embed(
-            title=header_title,
-            description=f"Found {min(len(batch), 5)} article(s) shown",
-            color=EMBED_COLOR_PRIMARY,
-        )
-        await interaction.followup.send(embed=header)
-        
-        display_count = min(len(batch), 5)
-        for i in range(display_count):
-            article = batch[i]
-            is_last = (i == display_count - 1)
-            has_more = (len(batch) > 5)
-
-            if is_last and has_more:
-                view = NewsPaginationView(
-                    command_type="search",
-                    offset=5,
-                    search_date=target_date,
-                    search_tag=tag,
-                    article_url=article.url,
-                    start_index=i + 2,
-                )
-            else:
-                view = _build_article_view(article)
-
-            await interaction.followup.send(
-                embed=_build_article_embed(article, index=i + 1),
-                view=view,
-            )
-
-    # ── /newscategories ───────────────────────────────────────────────────
-    @app_commands.command(name="newscategories", description="📂 Browse news by category with an interactive dropdown")
-    async def newscategories(self, interaction: discord.Interaction):
-        await interaction.response.defer(thinking=True)
-
-        session = _get_session()
+        session = get_session()
         try:
-            # Get all distinct categories from the database
-            raw_categories = (
-                session.query(Article.category)
-                .filter(Article.category.isnot(None))
-                .distinct()
+            # Fetch page 1 (limit 6)
+            batch = fetch_articles(session, category=tag, target_date=target_date, offset=0, limit=6)
+
+            if not batch:
+                desc_parts: list[str] = []
+                if target_date:
+                    desc_parts.append(f"date **{target_date}**")
+                if tag:
+                    desc_parts.append(f"tag **{tag}**")
+                criteria = " and ".join(desc_parts)
+
+                embed = discord.Embed(
+                    title="📭 No Results",
+                    description=f"No news found for {criteria}.",
+                    colour=COLOR_DEFAULT,
+                )
+                await interaction.followup.send(embed=embed)
+                return
+
+            header_parts: list[str] = []
+            if target_date:
+                header_parts.append(str(target_date))
+            if tag:
+                header_parts.append(tag)
+
+            await interaction.followup.send(
+                content=f"📰 **News** ({', '.join(header_parts)}) — {min(len(batch), 5)} result(s) shown:"
+            )
+
+            display_count = min(len(batch), 5)
+            for i in range(display_count):
+                article = batch[i]
+                is_last = (i == display_count - 1)
+                has_more = (len(batch) > 5)
+
+                if is_last and has_more:
+                    view = NewsPaginationView(
+                        command_type="search",
+                        offset=5,
+                        search_date=target_date,
+                        search_tag=tag,
+                        article_url=article.url,
+                    )
+                else:
+                    view = build_article_view(article)
+
+                await interaction.followup.send(
+                    embed=build_article_embed(article),
+                    view=view,
+                )
+        finally:
+            session.close()
+
+    # ── /newscategories ─────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="newscategories",
+        description="Browse today's news by category.",
+    )
+    async def newscategories(self, interaction: discord.Interaction) -> None:
+        """Show a dropdown of all categories with article counts."""
+        session = get_session()
+        try:
+            today = date.today()
+            start = datetime.combine(today, datetime.min.time())
+            end = datetime.combine(today + timedelta(days=1), datetime.min.time())
+
+            rows = (
+                session.query(Article.category, func.count(Article.id))
+                .filter(Article.published_at >= start, Article.published_at < end)
+                .group_by(Article.category)
                 .all()
             )
-            categories = sorted([cat[0] for cat in raw_categories if cat[0]])
-
-            if not categories:
-                await interaction.followup.send(
-                    embed=discord.Embed(
-                        title="❌ No Categories Found",
-                        description="The database has no categorized articles yet. Run the intelligence pipeline first.",
-                        color=EMBED_COLOR_ERROR,
+            
+            # If no news today, get counts from the fallback date
+            if not rows:
+                fallback_date = get_fallback_date(session)
+                if fallback_date:
+                    start_fb = datetime.combine(fallback_date, datetime.min.time())
+                    end_fb = datetime.combine(fallback_date + timedelta(days=1), datetime.min.time())
+                    rows = (
+                        session.query(Article.category, func.count(Article.id))
+                        .filter(Article.published_at >= start_fb, Article.published_at < end_fb)
+                        .group_by(Article.category)
+                        .all()
                     )
-                )
-                return
-
-            # Build category list for the embed
-            cat_list = "\n".join([f"**{i+1}.** {cat}" for i, cat in enumerate(categories)])
-
-            embed = discord.Embed(
-                title="📂 News Categories",
-                description=f"Select a category from the dropdown below to view today's news.\n\n{cat_list}",
-                color=EMBED_COLOR_PRIMARY,
-            )
-            embed.set_footer(text="Dropdown expires in 2 minutes")
-
-            await interaction.followup.send(embed=embed, view=CategoryView(categories))
-
         finally:
             session.close()
 
-    # ── /setup_daily (Admin only) ─────────────────────────────────────────
-    @app_commands.command(name="setup_daily", description="⚙️ [Admin] Register this channel for the daily news drop")
-    @app_commands.describe(category="Optional: only receive news from this category (e.g. 'Sci/Tech')")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def setup_daily(self, interaction: discord.Interaction, category: str = None):
-        await interaction.response.defer(thinking=True)
+        if not rows:
+            embed = discord.Embed(
+                title="📭 No Categories",
+                description="No articles have been found in the database.",
+                colour=COLOR_DEFAULT,
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
 
-        server_id = str(interaction.guild.id)
-        channel_id = str(interaction.channel.id)
+        options: list[discord.SelectOption] = []
+        for cat, count in rows:
+            label = cat or "Uncategorised"
+            options.append(
+                discord.SelectOption(
+                    label=f"{label} ({count})",
+                    value=label,
+                    description=f"{count} article(s)",
+                )
+            )
 
-        session = _get_session()
+        # Discord select menus allow at most 25 options.
+        options = options[:25]
+
+        view = CategoryView(options)
+        embed = discord.Embed(
+            title="📂 Categories",
+            description="Pick a category from the dropdown to view recent articles.",
+            colour=COLOR_DEFAULT,
+        )
+        await interaction.response.send_message(embed=embed, view=view)
+
+
+    # ── /setup_daily ────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="setup_daily",
+        description="Subscribe this channel to the daily news broadcast.",
+    )
+    @app_commands.describe(
+        category="News category to receive (default: all).",
+    )
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def setup_daily(
+        self,
+        interaction: discord.Interaction,
+        category: Optional[str] = "all",
+    ) -> None:
+        """Register or update a daily news subscription for this channel."""
+        guild_id = str(interaction.guild_id)
+        channel_id = str(interaction.channel_id)
+
+        session = get_session()
         try:
-            # Check if this channel is already subscribed
-            existing = session.query(DiscordSubscription).filter(
-                DiscordSubscription.channel_id == channel_id,
-            ).first()
+            existing = (
+                session.query(DiscordSubscription)
+                .filter_by(server_id=guild_id, channel_id=channel_id)
+                .first()
+            )
 
             if existing:
-                # Update the category preference
                 existing.category = category
-                session.commit()
-                await interaction.followup.send(
-                    embed=discord.Embed(
-                        title="✅ Daily Drop Updated",
-                        description=f"This channel is already subscribed. Category updated to **{category or 'All News'}**.",
-                        color=EMBED_COLOR_SUCCESS,
-                    )
+                action = "updated"
+            else:
+                sub = DiscordSubscription(
+                    server_id=guild_id,
+                    channel_id=channel_id,
+                    category=category,
                 )
-                return
+                session.add(sub)
+                action = "created"
 
-            # Create new subscription
-            subscription = DiscordSubscription(
-                server_id=server_id,
-                channel_id=channel_id,
-                category=category,
-            )
-            session.add(subscription)
             session.commit()
-
-            await interaction.followup.send(
-                embed=discord.Embed(
-                    title="✅ Daily Drop Enabled!",
-                    description=f"This channel will now receive the daily news briefing at **3:00 PM UTC** every day.\n\n"
-                                f"**Category filter:** {category or 'All News'}\n"
-                                f"**Channel:** <#{channel_id}>",
-                    color=EMBED_COLOR_SUCCESS,
-                )
-            )
-
-        except Exception as e:
-            await interaction.followup.send(
-                embed=discord.Embed(
-                    title="❌ Error",
-                    description=f"Failed to set up daily drop: {str(e)}",
-                    color=EMBED_COLOR_ERROR,
-                )
-            )
         finally:
             session.close()
 
-    # Error handler for missing admin permissions
+        embed = discord.Embed(
+            title="✅ Daily News Subscription",
+            description=(
+                f"Subscription **{action}** for this channel.\n\n"
+                f"**Category:** {category}\n"
+                f"**Schedule:** Every day at 3:00 PM IST (9:30 AM UTC)"
+            ),
+            colour=COLOR_CREDIBLE,
+            timestamp=datetime.utcnow(),
+        )
+        embed.set_footer(text="AI News Pipeline • /remove_daily to unsubscribe")
+        await interaction.response.send_message(embed=embed)
+
     @setup_daily.error
-    async def setup_daily_error(self, interaction: discord.Interaction, error):
+    async def setup_daily_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        """Handle permission errors for /setup_daily."""
         if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message(
-                embed=discord.Embed(
-                    title="🔒 Permission Denied",
-                    description="Only server administrators can set up the daily news drop.",
-                    color=EMBED_COLOR_ERROR,
-                ),
-                ephemeral=True,
+            embed = discord.Embed(
+                title="🔒 Permission Denied",
+                description="You need the **Manage Channels** permission to use this command.",
+                colour=COLOR_FLAGGED,
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            logger.exception("Unhandled error in /setup_daily: %s", error)
+
+    # ── /remove_daily ───────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="remove_daily",
+        description="Unsubscribe this channel from the daily news broadcast.",
+    )
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def remove_daily(self, interaction: discord.Interaction) -> None:
+        """Remove the daily subscription for this channel."""
+        guild_id = str(interaction.guild_id)
+        channel_id = str(interaction.channel_id)
+
+        session = get_session()
+        try:
+            existing = (
+                session.query(DiscordSubscription)
+                .filter_by(server_id=guild_id, channel_id=channel_id)
+                .first()
             )
 
-    # ── /remove_daily (Admin only) ────────────────────────────────────────
-    @app_commands.command(name="remove_daily", description="⚙️ [Admin] Unregister this channel from the daily news drop")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def remove_daily(self, interaction: discord.Interaction):
-        await interaction.response.defer(thinking=True)
-
-        channel_id = str(interaction.channel.id)
-
-        session = _get_session()
-        try:
-            existing = session.query(DiscordSubscription).filter(
-                DiscordSubscription.channel_id == channel_id,
-            ).first()
-
             if not existing:
-                await interaction.followup.send(
-                    embed=discord.Embed(
-                        title="⚠️ Not Subscribed",
-                        description="This channel is not currently subscribed to the daily news drop.",
-                        color=EMBED_COLOR_WARNING,
-                    )
+                embed = discord.Embed(
+                    title="📭 No Subscription",
+                    description="This channel does not have an active daily news subscription.",
+                    colour=COLOR_DEFAULT,
                 )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
 
             session.delete(existing)
             session.commit()
-
-            await interaction.followup.send(
-                embed=discord.Embed(
-                    title="✅ Daily Drop Removed",
-                    description="This channel will no longer receive the daily news briefing.",
-                    color=EMBED_COLOR_SUCCESS,
-                )
-            )
         finally:
             session.close()
 
+        embed = discord.Embed(
+            title="🗑️ Subscription Removed",
+            description="This channel will no longer receive daily news broadcasts.",
+            colour=COLOR_UNCERTAIN,
+            timestamp=datetime.utcnow(),
+        )
+        embed.set_footer(text="AI News Pipeline • /setup_daily to re-subscribe")
+        await interaction.response.send_message(embed=embed)
+
     @remove_daily.error
-    async def remove_daily_error(self, interaction: discord.Interaction, error):
+    async def remove_daily_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        """Handle permission errors for /remove_daily."""
         if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message(
-                embed=discord.Embed(
-                    title="🔒 Permission Denied",
-                    description="Only server administrators can remove the daily news drop.",
-                    color=EMBED_COLOR_ERROR,
-                ),
-                ephemeral=True,
+            embed = discord.Embed(
+                title="🔒 Permission Denied",
+                description="You need the **Manage Channels** permission to use this command.",
+                colour=COLOR_FLAGGED,
             )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            logger.exception("Unhandled error in /remove_daily: %s", error)
 
 
-# ── Cog Setup ─────────────────────────────────────────────────────────────────
-async def setup(bot):
+# ── Cog setup hook (required by discord.py) ─────────────────────────────────
+
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(NewsCommands(bot))
+    logger.info("NewsCommands cog loaded.")
