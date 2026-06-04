@@ -16,11 +16,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install python dependencies
-# Using the PyTorch CPU wheels index saves ~2GB of download size and prevents out-of-memory failures
+# Upgrade pip
+RUN pip install --no-cache-dir --upgrade pip
+
+# Step 1: Pre-install CPU-only PyTorch directly to ensure it does not fetch the GPU version
+RUN pip install --no-cache-dir torch==2.1.2 --index-url https://download.pytorch.org/whl/cpu
+
+# Step 2: Install remaining requirements (pip will skip torch since it's already installed)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Download spaCy model during build so it is baked into the container
 RUN python -m spacy download en_core_web_sm
