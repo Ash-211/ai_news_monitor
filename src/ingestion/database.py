@@ -38,20 +38,39 @@ class Article(Base):
     def __repr__(self):
         return f"<Article(title='{self.title[:30]}...', source='{self.source}')>"
 
+class DiscordSubscription(Base):
+    """
+    Represents a Discord channel subscription to daily automated news drops.
+    """
+    __tablename__ = 'discord_subscriptions'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    server_id = Column(String, nullable=False)
+    channel_id = Column(String, nullable=False)
+    category = Column(String, default="all")
+
+    def __repr__(self):
+        return f"<DiscordSubscription(server_id='{self.server_id}', channel_id='{self.channel_id}', category='{self.category}')>"
+
 def get_engine():
     """
     Initializes and returns the database engine.
-    For this project, we are using a local SQLite database in the data/ folder.
+    Supports DATABASE_URL env var for PostgreSQL integration, falling back to local SQLite.
     """
-    # Ensure data directory exists
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://", 1)
+        return create_engine(db_url, echo=False)
+
+    # Fallback to local SQLite
     os.makedirs('data', exist_ok=True)
     db_path = 'sqlite:///data/database.sqlite'
-    engine = create_engine(db_path, echo=False)
-    return engine
+    return create_engine(db_path, echo=False)
 
 def init_db():
     """
-    Creates all tables in the SQLite database based on defined models.
+    Creates all tables in the database based on defined models.
     """
     engine = get_engine()
     Base.metadata.create_all(engine)
@@ -68,3 +87,4 @@ def get_session():
 if __name__ == "__main__":
     # Test initialization
     init_db()
+

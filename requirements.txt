@@ -31,3 +31,8 @@ seaborn==0.13.2
 # API Backend
 fastapi==0.109.2
 uvicorn==0.27.1
+
+# Discord Bot
+discord.py==2.5.2
+aiohttp==3.11.11
+psycopg2-binary==2.9.9
