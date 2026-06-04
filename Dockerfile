@@ -7,16 +7,20 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install system dependencies for PostgreSQL driver compilation
+# Install system dependencies for PostgreSQL driver and newspaper3k (lxml) compilation
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    libxml2-dev \
+    libxslt-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install python dependencies
+# Using the PyTorch CPU wheels index saves ~2GB of download size and prevents out-of-memory failures
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Download spaCy model during build so it is baked into the container
 RUN python -m spacy download en_core_web_sm
