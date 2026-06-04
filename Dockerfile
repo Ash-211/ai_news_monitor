@@ -26,8 +26,8 @@ RUN pip install --no-cache-dir torch==2.1.2 --index-url https://download.pytorch
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Download spaCy model during build so it is baked into the container
-RUN python -m spacy download en_core_web_sm
+# Step 3: Install spaCy model directly via its official URL to bypass the failing helper command
+RUN pip install --no-cache-dir https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0.tar.gz
 
 # Copy models and source files
 COPY models/ ./models/
