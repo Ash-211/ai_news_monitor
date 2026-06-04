@@ -12,6 +12,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from datetime import datetime, date, timedelta
+from typing import Optional, List
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, func
 from src.ingestion.database import Article, DiscordSubscription, get_engine
@@ -27,11 +28,71 @@ EMBED_COLOR_WARNING = 0xFEE75C    # Yellow
 
 
 # ── Helper Functions ──────────────────────────────────────────────────────────
+# ── Helper Functions & Pagination View ──────────────────────────────────────────
 def _get_session():
     """Create a fresh database session."""
     engine = get_engine()
     Session = sessionmaker(bind=engine)
     return Session()
+
+
+def fetch_articles(
+    category: str = None,
+    target_date: date = None,
+    tag: str = None,
+    offset: int = 0,
+    limit: int = 5,
+) -> list:
+    """
+    Unified query function supporting category, date, and keyword search filters, with pagination offset.
+    """
+    session = _get_session()
+    try:
+        query = session.query(Article)
+        
+        if target_date:
+            next_day = target_date + timedelta(days=1)
+            query = query.filter(
+                Article.published_at >= datetime.combine(target_date, datetime.min.time()),
+                Article.published_at < datetime.combine(next_day, datetime.min.time()),
+            )
+            
+        if category and category.lower() != "all":
+            query = query.filter(Article.category.ilike(f"%{category.strip()}%"))
+            
+        if tag:
+            tag_term = tag.strip()
+            query = query.filter(
+                (Article.title.ilike(f"%{tag_term}%")) |
+                (Article.keywords.ilike(f"%{tag_term}%")) |
+                (Article.category.ilike(f"%{tag_term}%"))
+            )
+            
+        return query.order_by(Article.published_at.desc()).offset(offset).limit(limit).all()
+    finally:
+        session.close()
+
+
+def get_fallback_date(category: str = None, tag: str = None) -> Optional[date]:
+    """
+    Finds the date of the most recent article, optionally filtered by category or tag.
+    """
+    session = _get_session()
+    try:
+        query = session.query(Article)
+        if category and category.lower() != "all":
+            query = query.filter(Article.category.ilike(f"%{category.strip()}%"))
+        if tag:
+            tag_term = tag.strip()
+            query = query.filter(
+                (Article.title.ilike(f"%{tag_term}%")) |
+                (Article.keywords.ilike(f"%{tag_term}%")) |
+                (Article.category.ilike(f"%{tag_term}%"))
+            )
+        latest = query.order_by(Article.published_at.desc()).first()
+        return latest.published_at.date() if latest and latest.published_at else None
+    finally:
+        session.close()
 
 
 def _build_article_embed(article, index: int = None) -> discord.Embed:
@@ -64,7 +125,6 @@ def _build_article_embed(article, index: int = None) -> discord.Embed:
     title = article.title or "Untitled Article"
     if index is not None:
         title = f"{index}. {title}"
-    # Discord embed title limit is 256 characters
     if len(title) > 253:
         title = title[:250] + "..."
 
@@ -99,12 +159,95 @@ def _build_article_view(article) -> discord.ui.View:
     return view
 
 
-def _build_news_embeds(articles: list) -> list:
-    """Build a list of embeds for multiple articles."""
-    embeds = []
-    for i, article in enumerate(articles, 1):
-        embeds.append(_build_article_embed(article, index=i))
-    return embeds
+class NewsPaginationView(discord.ui.View):
+    """
+    A view containing:
+    1. A URL link button to "Read Full Article".
+    2. A "Show More ➡️" button to load the next page of 5 articles.
+    """
+    def __init__(
+        self,
+        command_type: str,  # "daily", "category", "search"
+        offset: int,
+        category: Optional[str] = None,
+        search_date: Optional[date] = None,
+        search_tag: Optional[str] = None,
+        article_url: Optional[str] = None,
+        start_index: int = 1,
+    ) -> None:
+        super().__init__(timeout=None)
+        self.command_type = command_type
+        self.offset = offset
+        self.category = category
+        self.search_date = search_date
+        self.search_tag = search_tag
+        self.start_index = start_index
+
+        # 1. Read Full Article Button
+        if article_url:
+            self.add_item(
+                discord.ui.Button(
+                    label="📖 Read Full Article",
+                    url=article_url,
+                    style=discord.ButtonStyle.link,
+                )
+            )
+
+        # 2. Show More Button
+        self.show_more_btn = discord.ui.Button(
+            label="Show More ➡️",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"show_more:{command_type}:{offset}",
+        )
+        self.show_more_btn.callback = self.show_more_callback
+        self.add_item(self.show_more_btn)
+
+    async def show_more_callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+
+        # Disable/remove the Show More button on this message to prevent re-clicks
+        self.remove_item(self.show_more_btn)
+        await interaction.message.edit(view=self)
+
+        limit = 6
+        batch = fetch_articles(
+            category=self.category,
+            target_date=self.search_date,
+            tag=self.search_tag,
+            offset=self.offset,
+            limit=limit,
+        )
+
+        if not batch:
+            await interaction.followup.send(
+                content="📭 No more articles found.", ephemeral=True
+            )
+            return
+
+        display_count = min(len(batch), 5)
+        for i in range(display_count):
+            article = batch[i]
+            current_index = self.start_index + i
+            is_last = (i == display_count - 1)
+            has_more = (len(batch) > 5)
+
+            if is_last and has_more:
+                view = NewsPaginationView(
+                    command_type=self.command_type,
+                    offset=self.offset + 5,
+                    category=self.category,
+                    search_date=self.search_date,
+                    search_tag=self.search_tag,
+                    article_url=article.url,
+                    start_index=current_index + 1,
+                )
+            else:
+                view = _build_article_view(article)
+
+            await interaction.followup.send(
+                embed=_build_article_embed(article, index=current_index),
+                view=view,
+            )
 
 
 # ── Category Select Menu ─────────────────────────────────────────────────────
@@ -113,7 +256,7 @@ class CategorySelect(discord.ui.Select):
 
     def __init__(self, categories: list):
         options = []
-        for i, cat in enumerate(categories):
+        for cat in categories:
             options.append(discord.SelectOption(
                 label=cat,
                 value=cat,
@@ -131,67 +274,66 @@ class CategorySelect(discord.ui.Select):
         selected_category = self.values[0]
         await interaction.response.defer(thinking=True)
 
-        session = _get_session()
-        try:
-            today = date.today()
-            tomorrow = today + timedelta(days=1)
+        target_date = date.today()
+        test_articles = fetch_articles(category=selected_category, target_date=target_date, limit=1)
+        
+        fallback_msg = ""
+        if not test_articles:
+            fallback = get_fallback_date(category=selected_category)
+            if fallback:
+                target_date = fallback
+                fallback_msg = f" (No news today. Showing the most recent articles from **{target_date.strftime('%B %d, %Y')}** instead)"
+            else:
+                target_date = None
 
-            articles = (
-                session.query(Article)
-                .filter(
-                    Article.category == selected_category,
-                    Article.published_at >= datetime.combine(today, datetime.min.time()),
-                    Article.published_at < datetime.combine(tomorrow, datetime.min.time()),
+        if not target_date:
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    title="❌ No News Found",
+                    description=f"No articles found for category **{selected_category}**.",
+                    color=EMBED_COLOR_ERROR,
                 )
-                .order_by(Article.credibility_score.desc())
-                .limit(MAX_ARTICLES_PER_EMBED)
-                .all()
             )
+            return
 
-            if not articles:
-                # If no articles today, get the latest ones for that category
-                articles = (
-                    session.query(Article)
-                    .filter(Article.category == selected_category)
-                    .order_by(Article.published_at.desc())
-                    .limit(MAX_ARTICLES_PER_EMBED)
-                    .all()
+        batch = fetch_articles(category=selected_category, target_date=target_date, offset=0, limit=6)
+
+        header = discord.Embed(
+            title=f"📂 {selected_category} News",
+            description=f"Showing top {min(len(batch), 5)} article(s) for **{selected_category}**{fallback_msg}",
+            color=EMBED_COLOR_PRIMARY if not fallback_msg else EMBED_COLOR_WARNING,
+        )
+        await interaction.followup.send(embed=header)
+        
+        display_count = min(len(batch), 5)
+        for i in range(display_count):
+            article = batch[i]
+            is_last = (i == display_count - 1)
+            has_more = (len(batch) > 5)
+
+            if is_last and has_more:
+                view = NewsPaginationView(
+                    command_type="category",
+                    offset=5,
+                    category=selected_category,
+                    search_date=target_date,
+                    article_url=article.url,
+                    start_index=i + 2,
                 )
+            else:
+                view = _build_article_view(article)
 
-            if not articles:
-                await interaction.followup.send(
-                    embed=discord.Embed(
-                        title="❌ No News Found",
-                        description=f"No articles found for category **{selected_category}**.",
-                        color=EMBED_COLOR_ERROR,
-                    )
-                )
-                return
-
-            header = discord.Embed(
-                title=f"📂 {selected_category} News",
-                description=f"Showing top {len(articles)} article(s) for **{selected_category}**",
-                color=EMBED_COLOR_PRIMARY,
+            await interaction.followup.send(
+                embed=_build_article_embed(article, index=i + 1),
+                view=view,
             )
-            embeds = [header] + _build_news_embeds(articles)
-
-            # Send each embed with its button separately (Discord limits 10 embeds per message)
-            await interaction.followup.send(embed=embeds[0])
-            for i, article in enumerate(articles):
-                await interaction.followup.send(
-                    embed=embeds[i + 1],
-                    view=_build_article_view(article),
-                )
-
-        finally:
-            session.close()
 
 
 class CategoryView(discord.ui.View):
     """View wrapper for the category dropdown."""
 
     def __init__(self, categories: list):
-        super().__init__(timeout=120)  # 2 minute timeout
+        super().__init__(timeout=120)
         self.add_item(CategorySelect(categories))
 
 
@@ -207,61 +349,63 @@ class NewsCommands(commands.Cog):
     async def newsdaily(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
 
-        session = _get_session()
-        try:
-            today = date.today()
-            tomorrow = today + timedelta(days=1)
+        target_date = date.today()
+        test_articles = fetch_articles(target_date=target_date, limit=1)
+        
+        fallback_msg = ""
+        if not test_articles:
+            fallback = get_fallback_date()
+            if fallback:
+                target_date = fallback
+                fallback_msg = f" (No news found for today. Showing the most recent articles from **{target_date.strftime('%B %d, %Y')}** instead)"
+            else:
+                target_date = None
 
-            articles = (
-                session.query(Article)
-                .filter(
-                    Article.published_at >= datetime.combine(today, datetime.min.time()),
-                    Article.published_at < datetime.combine(tomorrow, datetime.min.time()),
+        if not target_date:
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    title="❌ No News Available",
+                    description="The database has no articles yet. The pipeline may still be running.",
+                    color=EMBED_COLOR_ERROR,
                 )
-                .order_by(Article.credibility_score.desc())
-                .limit(MAX_ARTICLES_PER_EMBED)
-                .all()
             )
+            return
 
-            if not articles:
-                # Fallback: show most recent articles if nothing from today
-                articles = (
-                    session.query(Article)
-                    .order_by(Article.published_at.desc())
-                    .limit(MAX_ARTICLES_PER_EMBED)
-                    .all()
-                )
-                if not articles:
-                    await interaction.followup.send(
-                        embed=discord.Embed(
-                            title="❌ No News Available",
-                            description="The database has no articles yet. The pipeline may still be running.",
-                            color=EMBED_COLOR_ERROR,
-                        )
-                    )
-                    return
+        batch = fetch_articles(target_date=target_date, offset=0, limit=6)
 
-                header = discord.Embed(
-                    title=f"📰 Latest News Briefing",
-                    description=f"No news found for today ({today.strftime('%B %d, %Y')}). Showing the most recent articles instead.",
-                    color=EMBED_COLOR_WARNING,
+        header_title = f"📰 Daily News Briefing — {target_date.strftime('%B %d, %Y')}"
+        if fallback_msg:
+            header_title = f"📰 Latest News Briefing"
+            
+        header = discord.Embed(
+            title=header_title,
+            description=f"Showing top {min(len(batch), 5)} AI-analyzed article(s){fallback_msg}",
+            color=EMBED_COLOR_PRIMARY if not fallback_msg else EMBED_COLOR_WARNING,
+        )
+
+        await interaction.followup.send(embed=header)
+        
+        display_count = min(len(batch), 5)
+        for i in range(display_count):
+            article = batch[i]
+            is_last = (i == display_count - 1)
+            has_more = (len(batch) > 5)
+
+            if is_last and has_more:
+                view = NewsPaginationView(
+                    command_type="daily",
+                    offset=5,
+                    search_date=target_date,
+                    article_url=article.url,
+                    start_index=i + 2,
                 )
             else:
-                header = discord.Embed(
-                    title=f"📰 Daily News Briefing — {today.strftime('%B %d, %Y')}",
-                    description=f"Top {len(articles)} AI-analyzed article(s) for today",
-                    color=EMBED_COLOR_PRIMARY,
-                )
+                view = _build_article_view(article)
 
-            await interaction.followup.send(embed=header)
-            for i, article in enumerate(articles, 1):
-                await interaction.followup.send(
-                    embed=_build_article_embed(article, index=i),
-                    view=_build_article_view(article),
-                )
-
-        finally:
-            session.close()
+            await interaction.followup.send(
+                embed=_build_article_embed(article, index=i + 1),
+                view=view,
+            )
 
     # ── /news [date] [tag] ────────────────────────────────────────────────
     @app_commands.command(name="news", description="🔎 Search news by date or tag/keyword")
@@ -292,87 +436,81 @@ class NewsCommands(commands.Cog):
             )
             return
 
-        session = _get_session()
-        try:
-            query = session.query(Article)
-
-            # Filter by date if provided
-            target_date_str = ""
-            if date:
-                try:
-                    parsed_date = datetime.strptime(date.strip(), "%Y-%m-%d").date()
-                    next_day = parsed_date + timedelta(days=1)
-                    query = query.filter(
-                        Article.published_at >= datetime.combine(parsed_date, datetime.min.time()),
-                        Article.published_at < datetime.combine(next_day, datetime.min.time()),
-                    )
-                    target_date_str = parsed_date.strftime("%B %d, %Y")
-                except ValueError:
-                    await interaction.followup.send(
-                        embed=discord.Embed(
-                            title="❌ Invalid Date Format",
-                            description=f"Could not parse `{date}`. Please use the format **YYYY-MM-DD** (e.g. `2026-06-04`).",
-                            color=EMBED_COLOR_ERROR,
-                        )
-                    )
-                    return
-
-            # Filter by tag if provided (search in title, keywords, and category)
-            if tag:
-                tag_term = tag.strip()
-                query = query.filter(
-                    (Article.title.ilike(f"%{tag_term}%")) |
-                    (Article.keywords.ilike(f"%{tag_term}%")) |
-                    (Article.category.ilike(f"%{tag_term}%"))
-                )
-
-            articles = (
-                query.order_by(Article.published_at.desc())
-                .limit(MAX_ARTICLES_PER_EMBED)
-                .all()
-            )
-
-            if not articles:
-                desc_parts = []
-                if date:
-                    desc_parts.append(f"date **{date}**")
-                if tag:
-                    desc_parts.append(f"tag **{tag}**")
+        target_date = None
+        target_date_str = ""
+        if date:
+            try:
+                target_date = datetime.strptime(date.strip(), "%Y-%m-%d").date()
+                target_date_str = target_date.strftime("%B %d, %Y")
+            except ValueError:
                 await interaction.followup.send(
                     embed=discord.Embed(
-                        title="❌ No News Found",
-                        description=f"No articles found for {' and '.join(desc_parts)}.\n\n"
-                                    "This could mean:\n"
-                                    "• The date format is incorrect\n"
-                                    "• No news was ingested for that date\n"
-                                    "• The tag doesn't match any articles",
+                        title="❌ Invalid Date Format",
+                        description=f"Could not parse `{date}`. Please use the format **YYYY-MM-DD** (e.g. `2026-06-04`).",
                         color=EMBED_COLOR_ERROR,
                     )
                 )
                 return
 
-            # Build header
-            title_parts = []
-            if target_date_str:
-                title_parts.append(target_date_str)
+        # Fetch page 1 (limit 6)
+        batch = fetch_articles(target_date=target_date, tag=tag, offset=0, limit=6)
+
+        if not batch:
+            desc_parts = []
+            if date:
+                desc_parts.append(f"date **{date}**")
             if tag:
-                title_parts.append(f"#{tag}")
-            header_title = f"🔎 News Results — {' | '.join(title_parts)}"
-
-            header = discord.Embed(
-                title=header_title,
-                description=f"Found {len(articles)} article(s)",
-                color=EMBED_COLOR_PRIMARY,
-            )
-            await interaction.followup.send(embed=header)
-            for i, article in enumerate(articles, 1):
-                await interaction.followup.send(
-                    embed=_build_article_embed(article, index=i),
-                    view=_build_article_view(article),
+                desc_parts.append(f"tag **{tag}**")
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    title="❌ No News Found",
+                    description=f"No articles found for {' and '.join(desc_parts)}.\n\n"
+                                "This could mean:\n"
+                                "• The date format is incorrect\n"
+                                "• No news was ingested for that date\n"
+                                "• The tag doesn't match any articles",
+                    color=EMBED_COLOR_ERROR,
                 )
+            )
+            return
 
-        finally:
-            session.close()
+        # Build header
+        title_parts = []
+        if target_date_str:
+            title_parts.append(target_date_str)
+        if tag:
+            title_parts.append(f"#{tag}")
+        header_title = f"🔎 News Results — {' | '.join(title_parts)}"
+
+        header = discord.Embed(
+            title=header_title,
+            description=f"Found {min(len(batch), 5)} article(s) shown",
+            color=EMBED_COLOR_PRIMARY,
+        )
+        await interaction.followup.send(embed=header)
+        
+        display_count = min(len(batch), 5)
+        for i in range(display_count):
+            article = batch[i]
+            is_last = (i == display_count - 1)
+            has_more = (len(batch) > 5)
+
+            if is_last and has_more:
+                view = NewsPaginationView(
+                    command_type="search",
+                    offset=5,
+                    search_date=target_date,
+                    search_tag=tag,
+                    article_url=article.url,
+                    start_index=i + 2,
+                )
+            else:
+                view = _build_article_view(article)
+
+            await interaction.followup.send(
+                embed=_build_article_embed(article, index=i + 1),
+                view=view,
+            )
 
     # ── /newscategories ───────────────────────────────────────────────────
     @app_commands.command(name="newscategories", description="📂 Browse news by category with an interactive dropdown")
