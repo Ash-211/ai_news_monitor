@@ -14,9 +14,11 @@ function App() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
 
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
   const fetchStats = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/stats');
+      const res = await fetch(`${API_BASE_URL}/api/stats`);
       const data = await res.json();
       setStats(data);
     } catch (err) {
@@ -27,7 +29,7 @@ function App() {
   const fetchArticles = async (targetPage = 1) => {
     setLoading(true);
     try {
-      let url = new URL('http://localhost:8000/api/articles');
+      let url = new URL('/api/articles', API_BASE_URL);
       url.searchParams.append('page', targetPage.toString());
       url.searchParams.append('limit', '40');
       
