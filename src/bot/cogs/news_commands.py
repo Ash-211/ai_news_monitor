@@ -221,17 +221,10 @@ class NewsPaginationView(discord.ui.View):
                 )
             )
 
-        self.show_more_btn = discord.ui.Button(
-            label="Show More ➡️",
-            style=discord.ButtonStyle.secondary,
-            custom_id=f"show_more:{command_type}:{offset}",
-        )
-        self.show_more_btn.callback = self.show_more_callback
-        self.add_item(self.show_more_btn)
-
-    async def show_more_callback(self, interaction: discord.Interaction) -> None:
+    @discord.ui.button(label="Show More ➡️", style=discord.ButtonStyle.secondary)
+    async def show_more_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.defer()
-        self.remove_item(self.show_more_btn)
+        self.remove_item(button)
         await interaction.message.edit(view=self)
 
         limit = 6
