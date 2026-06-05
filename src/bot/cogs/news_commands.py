@@ -165,7 +165,7 @@ def fetch_articles(
             (Article.category.ilike(f"%{tag_term}%"))
         )
         
-    return query.order_by(Article.published_at.desc()).offset(offset).limit(limit).all()
+    return query.order_by(Article.published_at.desc(), Article.id.desc()).offset(offset).limit(limit).all()
 
 
 def get_fallback_date(session, category: Optional[str] = None, tag: Optional[str] = None) -> Optional[date]:
@@ -183,7 +183,7 @@ def get_fallback_date(session, category: Optional[str] = None, tag: Optional[str
             (Article.keywords.ilike(f"%{tag_term}%")) |
             (Article.category.ilike(f"%{tag_term}%"))
         )
-    latest = query.order_by(Article.published_at.desc()).first()
+    latest = query.order_by(Article.published_at.desc(), Article.id.desc()).first()
     return latest.published_at.date() if latest and latest.published_at else None
 
 
