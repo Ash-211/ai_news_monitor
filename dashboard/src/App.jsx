@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import ArticleCard from './components/ArticleCard';
-
+import DiscordLanding from './pages/DiscordLanding';
 import './index.css';
 
 function App() {
@@ -161,44 +161,17 @@ function App() {
                   {!['all', 'real', 'fake'].includes(currentFilter) && `Top Headlines: ${currentFilter}`}
                 </h2>
                 
-                <div className="header-actions" style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                  <a 
-                    href="https://discord.com/api/oauth2/authorize?client_id=1512066207690391653&permissions=2147483648&scope=bot%20applications.commands" 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.75rem 1.25rem',
-                      backgroundColor: '#5865F2',
-                      color: 'white',
-                      textDecoration: 'none',
-                      borderRadius: '12px',
-                      fontWeight: '600',
-                      fontSize: '0.93rem',
-                      boxShadow: '0 4px 14px rgba(88, 101, 242, 0.3)',
-                      transition: 'all 0.2s ease'
-                    }}
-                  >
-                    <svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="currentColor">
-                      <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.95,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36a77.7,77.7,0,0,0,6.63-10.85,68.43,68.43,0,0,1-10.5-5c.89-.65,1.76-1.34,2.58-2.06a75.22,75.22,0,0,0,73.1,0c.82.72,1.69,1.41,2.58,2.06a68.43,68.43,0,0,1-10.5,5,77.7,77.7,0,0,0,6.63,10.85,105.73,105.73,0,0,0,31.06-18.83C129.89,48.37,123.6,25.43,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z" />
-                    </svg>
-                    Add to Discord
-                  </a>
-                  
-                  <div className="search-bar">
-                    <input 
-                      type="text" 
-                      className="search-input" 
-                      placeholder="Search intelligence..." 
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                    <svg className="search-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                    </svg>
-                  </div>
+                <div className="search-bar">
+                  <input 
+                    type="text" 
+                    className="search-input" 
+                    placeholder="Search intelligence..." 
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                  <svg className="search-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                  </svg>
                 </div>
               </div>
 
@@ -225,7 +198,8 @@ function App() {
               )}
             </>
           } />
-
+          
+          <Route path="/discord" element={<DiscordLanding />} />
         </Routes>
       </main>
     </div>
