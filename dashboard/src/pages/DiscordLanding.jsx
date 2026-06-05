@@ -3,7 +3,7 @@ import './DiscordLanding.css';
 
 const DiscordLanding = () => {
   // A placeholder Discord invite URL. In a real app, client_id would be configured
-  const inviteUrl = "https://discord.com/api/oauth2/authorize?client_id=123456789012345678&permissions=2147483648&scope=bot%20applications.commands";
+  const inviteUrl = "https://discord.com/api/oauth2/authorize?client_id=1512066207690391653&permissions=2147483648&scope=bot%20applications.commands";
 
   return (
     <div className="discord-page">
