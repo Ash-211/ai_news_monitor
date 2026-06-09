@@ -12,7 +12,7 @@ from src.ingestion.database import Article, DiscordSubscription, get_engine
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-DAILY_DROP_TIME = dt_time(hour=15, minute=0)  # 3:00 PM UTC
+DAILY_DROP_TIME = dt_time(hour=3, minute=30)  # 3:30 AM UTC (9:00 AM IST)
 MAX_ARTICLES = 5
 EMBED_COLOR_PRIMARY = 0x5865F2
 EMBED_COLOR_SUCCESS = 0x57F287
@@ -39,8 +39,19 @@ class DailyScheduler(commands.Cog):
 
     @tasks.loop(time=DAILY_DROP_TIME)
     async def daily_drop(self):
-        """Triggered at 3:00 PM UTC every day."""
+        """Triggered at 3:30 AM UTC (9:00 AM IST) every day."""
         print(f"[{datetime.utcnow()}] 🕒 Daily drop triggered!")
+
+        # Run automated ingestion and pipeline before posting
+        print("  Running automated ingestion and AI pipeline...")
+        try:
+            import asyncio
+            from src.ingestion.scheduler import run_jobs
+            # run_jobs is blocking, so run it in a separate thread so it doesn't freeze the bot
+            await asyncio.to_thread(run_jobs)
+            print("  Ingestion complete.")
+        except Exception as e:
+            print(f"  ❌ Automated ingestion failed: {e}")
 
         session = _get_session()
         try:

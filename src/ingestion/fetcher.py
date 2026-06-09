@@ -60,13 +60,17 @@ class RSSFetcher:
 
 def save_articles_to_db(raw_articles, source_type="NewsAPI"):
     """
-    Takes raw articles from fetchers and saves them to the SQLite database.
-    Prevents duplicates using URL uniqueness. All inserts are batched into a
-    single transaction to minimise SQLite write-lock contention.
+    Takes raw articles from fetchers and saves them to the database.
+    Prevents duplicates using URL uniqueness. Each article is committed
+    individually so new data appears in the DB immediately.
     """
     session = get_session()
     saved_count = 0
-    articles_to_add = []
+
+    # Pre-import Config from newspaper for timeouts
+    from newspaper import Config
+    config = Config()
+    config.request_timeout = 3 # 3 seconds timeout limit
 
     for item in raw_articles:
         # Standardize article payload
@@ -77,13 +81,17 @@ def save_articles_to_db(raw_articles, source_type="NewsAPI"):
         if not title or not url:
             continue
             
+        # Fast pre-check: skip if URL already exists in database
+        if session.query(Article.id).filter(Article.url == url).first():
+            continue
+
         raw_content = item.get('content') or item.get('description') or ''
         
         # Parse full text from live URL using newspaper3k
         if url:
             try:
-                web_article = NewsArticle(url, keep_article_html=False)
-                # Keep timeouts reasonable so ingestion doesn't hang
+                print(f"  Scraping new article: {title[:60]}...", flush=True)
+                web_article = NewsArticle(url, config=config, keep_article_html=False)
                 web_article.download()
                 if web_article.download_state == 2:  # SUCCESS
                     web_article.parse()
@@ -106,42 +114,25 @@ def save_articles_to_db(raw_articles, source_type="NewsAPI"):
         else:
             pub_date = datetime.utcnow()
 
-        articles_to_add.append(Article(
+        # Save each article immediately so it appears in the DB right away
+        article = Article(
             title=title,
             url=url,
             source=source,
             author=author,
             published_at=pub_date,
             raw_content=raw_content
-        ))
+        )
+        session.add(article)
+        try:
+            session.commit()
+            saved_count += 1
+        except IntegrityError:
+            session.rollback()  # skip duplicate
+        except Exception as e:
+            print(f"Error saving article to DB: {e}")
+            session.rollback()
 
-    if not articles_to_add:
-        session.close()
-        return 0
-
-    # Attempt a fast single-transaction bulk insert
-    try:
-        session.add_all(articles_to_add)
-        session.commit()
-        saved_count = len(articles_to_add)
-    except IntegrityError:
-        # Batch had duplicate URLs — fall back to row-by-row to skip dupes
-        session.rollback()
-        saved_count = 0
-        for article in articles_to_add:
-            session.add(article)
-            try:
-                session.commit()
-                saved_count += 1
-            except IntegrityError:
-                session.rollback()  # skip duplicate
-            except Exception as e:
-                print(f"Error saving to DB: {e}")
-                session.rollback()
-    except Exception as e:
-        print(f"Error saving batch to DB: {e}")
-        session.rollback()
-            
     session.close()
     return saved_count
 

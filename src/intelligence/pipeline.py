@@ -112,8 +112,8 @@ def run_intelligence_pipeline():
 
         # ─── Step 4: Fake News Detection ─────────────────────────────
         print("\n[4/4] Running Fake News Detection...")
-        fake_news_model, fake_news_tokenizer = load_fake_news_detector()
-        if fake_news_model and fake_news_tokenizer:
+        fake_news_model = load_fake_news_detector()
+        if fake_news_model:
             # Build separate arrays for titles and contents for dual-scoring
             detection_titles = []
             detection_contents = []
@@ -130,7 +130,6 @@ def run_intelligence_pipeline():
                 detection_titles, 
                 detection_contents, 
                 model=fake_news_model, 
-                tokenizer=fake_news_tokenizer, 
                 sources=sources_list
             )
             
@@ -166,7 +165,6 @@ def run_intelligence_pipeline():
                             is_fake, new_score, new_breakdown = detect_fake_news(
                                 title, content, 
                                 model=fake_news_model,
-                                tokenizer=fake_news_tokenizer,
                                 source=article.source, 
                                 verification_result=verification
                             )
