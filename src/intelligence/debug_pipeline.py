@@ -23,7 +23,7 @@ def debug_db():
 
     # Check model loading
     clf = load_classifier()
-    detector = load_fake_news_detector()
+    detector, tokenizer = load_fake_news_detector()
     
     if articles:
         texts = [a.title + " " + (a.clean_content or "") for a in articles]
@@ -31,9 +31,10 @@ def debug_db():
         if clf:
             cats = classify_batch(texts, clf)
             print(f"Categories: {cats}")
-        if detector:
-            # dummy sources and corrs
-            fakes = detect_batch(texts, detector, [a.source for a in articles], [0]*len(articles))
+        if detector and tokenizer:
+            titles = [a.title for a in articles]
+            contents = [a.clean_content or "" for a in articles]
+            fakes = detect_batch(titles, contents, model=detector, tokenizer=tokenizer, sources=[a.source for a in articles])
             print(f"Detections: {fakes}")
 
     session.close()

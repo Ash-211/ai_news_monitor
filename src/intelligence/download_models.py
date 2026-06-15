@@ -13,13 +13,17 @@ HF_REPO_TYPE = "space"  # It's a Space, not a model repo
 
 MODEL_FILES = [
     "news_classifier.pkl",
-    "fake_news_detector.pkl",
     "lda_model.pkl",
     "lda_vectorizer.pkl",
+    "distilbert_fake_news/config.json",
+    "distilbert_fake_news/model.safetensors",
+    "distilbert_fake_news/special_tokens_map.json",
+    "distilbert_fake_news/tokenizer_config.json",
+    "distilbert_fake_news/vocab.txt"
 ]
 
-def is_valid_pkl(filepath):
-    """Check if a .pkl file is a real pickle file (not a Git LFS pointer)."""
+def is_valid_file(filepath):
+    """Check if a file is real (not a Git LFS pointer) and not corrupted."""
     if not os.path.exists(filepath):
         return False
     try:
@@ -28,9 +32,10 @@ def is_valid_pkl(filepath):
             # Git LFS pointer files start with "version https://git-lfs"
             if first_bytes.startswith(b'version'):
                 return False
-        # Try actually loading it
-        with open(filepath, 'rb') as f:
-            pickle.load(f)
+        # Try actually loading it if it's a pickle file
+        if filepath.endswith('.pkl'):
+            with open(filepath, 'rb') as f:
+                pickle.load(f)
         return True
     except Exception:
         return False
@@ -39,11 +44,12 @@ def is_valid_pkl(filepath):
 def download_models():
     """Download model files from HuggingFace Hub if they are missing or corrupted."""
     os.makedirs(MODELS_DIR, exist_ok=True)
+    os.makedirs(os.path.join(MODELS_DIR, "distilbert_fake_news"), exist_ok=True)
     
     needs_download = False
     for fname in MODEL_FILES:
         fpath = os.path.join(MODELS_DIR, fname)
-        if not is_valid_pkl(fpath):
+        if not is_valid_file(fpath):
             needs_download = True
             print(f"  [MODEL] {fname} is missing or corrupted (LFS pointer). Will download.")
         else:
@@ -58,7 +64,7 @@ def download_models():
         
         for fname in MODEL_FILES:
             fpath = os.path.join(MODELS_DIR, fname)
-            if not is_valid_pkl(fpath):
+            if not is_valid_file(fpath):
                 print(f"  [DOWNLOAD] Downloading {fname} from HuggingFace ({HF_REPO})...")
                 hf_hub_download(
                     repo_id=HF_REPO,
