@@ -1,0 +1,59 @@
+name: Keep Alive (10 AM - 9 PM IST)
+
+# ============================================================================
+# FREE scheduled uptime pinger using GitHub Actions
+# Replaces paid uptime bots by pinging Render services only during active hours
+#
+# Schedule: Every 5 minutes, but ONLY between 10 AM - 9 PM IST
+# This saves ~13 hours/day of Render runtime per service
+#
+# Math: 2 services × 11 hrs × 31 days = 682 hrs/month (under 750 limit!)
+# GitHub Actions usage: ~132 runs/day × 30 days × ~15 sec = ~16.5 hrs/month
+#                       (well within the 2000 free minutes for public repos)
+# ============================================================================
+
+on:
+  schedule:
+    # Runs every 5 minutes, 24/7 — the job itself checks if it's within IST active hours
+    # We use */5 and filter inside the job to avoid GitHub's 5-min cron minimum issues
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Manual trigger for testing
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check if within active hours (10 AM - 9 PM IST)
+        id: time_check
+        run: |
+          # Get current hour in IST (UTC+5:30)
+          CURRENT_HOUR=$(TZ='Asia/Kolkata' date +%H)
+          echo "Current IST hour: $CURRENT_HOUR"
+
+          # Active window: 10 AM (10) to 9 PM (21)
+          # We ping from 10:00 to 20:55 IST (last ping at 8:55 PM)
+          if [ "$CURRENT_HOUR" -ge 10 ] && [ "$CURRENT_HOUR" -lt 21 ]; then
+            echo "✅ Within active hours. Pinging services..."
+            echo "should_ping=true" >> $GITHUB_OUTPUT
+          else
+            echo "😴 Outside active hours ($CURRENT_HOUR IST). Skipping to save Render hours."
+            echo "should_ping=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Ping FastAPI Backend
+        if: steps.time_check.outputs.should_ping == 'true'
+        run: |
+          echo "Pinging FastAPI service..."
+          curl -sf --max-time 30 "${{ secrets.RENDER_FASTAPI_URL }}" || echo "⚠️ FastAPI ping failed (service may be starting up)"
+
+      - name: Ping Discord Bot Backend
+        if: steps.time_check.outputs.should_ping == 'true'
+        run: |
+          echo "Pinging Discord Bot service..."
+          curl -sf --max-time 30 "${{ secrets.RENDER_DISCORD_BOT_URL }}" || echo "⚠️ Discord Bot ping failed (service may be starting up)"
+
+      - name: Summary
+        if: steps.time_check.outputs.should_ping == 'true'
+        run: |
+          echo "✅ Both services pinged successfully at $(TZ='Asia/Kolkata' date '+%I:%M %p IST')"
