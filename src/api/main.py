@@ -4,10 +4,55 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 from src.ingestion.database import Article, _is_postgres, Base
-import os, time, hashlib, json
+import os, time, hashlib, json, threading, logging
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ── Self-Ping Keep-Alive (replaces external uptime bot) ───────────────────────
+# Pings this service's own Render URL every 4 minutes to prevent spin-down,
+# but ONLY during 10 AM – 9 PM IST. Outside those hours, it does nothing
+# and lets Render spin down naturally to save free-tier hours.
+
+IST = timezone(timedelta(hours=5, minutes=30))
+ACTIVE_START_HOUR = 10  # 10 AM IST
+ACTIVE_END_HOUR = 21    # 9 PM IST
+SELF_PING_INTERVAL = 240  # 4 minutes in seconds
+
+_selfping_logger = logging.getLogger("selfping")
+
+def _is_active_hours() -> bool:
+    """Check if current IST time is within active window (10 AM - 9 PM)."""
+    now_ist = datetime.now(IST)
+    return ACTIVE_START_HOUR <= now_ist.hour < ACTIVE_END_HOUR
+
+def _self_ping_loop():
+    """
+    Background thread: pings this service's own URL every 4 minutes
+    during active hours to prevent Render from spinning it down.
+    """
+    import urllib.request
+    service_url = os.getenv("RENDER_EXTERNAL_URL", "").strip()
+    if not service_url:
+        _selfping_logger.warning("RENDER_EXTERNAL_URL not set — self-ping disabled.")
+        return
+
+    ping_url = f"{service_url.rstrip('/')}/health"
+    _selfping_logger.info(f"Self-ping thread started. Target: {ping_url}")
+
+    while True:
+        try:
+            if _is_active_hours():
+                urllib.request.urlopen(ping_url, timeout=15)
+                now_ist = datetime.now(IST).strftime("%I:%M %p IST")
+                _selfping_logger.info(f"✅ Self-ping OK at {now_ist}")
+            else:
+                now_ist = datetime.now(IST).strftime("%I:%M %p IST")
+                _selfping_logger.info(f"😴 Outside active hours ({now_ist}). Letting Render sleep.")
+        except Exception as e:
+            _selfping_logger.warning(f"⚠️ Self-ping failed: {e}")
+        time.sleep(SELF_PING_INTERVAL)
 
 # ── Singleton engine & session factory (created ONCE at import time) ──────────
 def _build_engine():
@@ -154,6 +199,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Health check endpoint (used by self-ping and GitHub Actions wake-up) ──────
+@app.get("/health")
+def health_check():
+    now_ist = datetime.now(IST).strftime("%I:%M %p IST")
+    return {"status": "alive", "time_ist": now_ist, "active": _is_active_hours()}
+
+# ── Start self-ping thread on app startup ─────────────────────────────────────
+@app.on_event("startup")
+def start_self_ping():
+    thread = threading.Thread(target=_self_ping_loop, daemon=True)
+    thread.start()
+    _selfping_logger.info("🚀 Self-ping background thread launched.")
 
 # ── Stats ─────────────────────────────────────────────────────────────────────
 @app.get("/api/stats")
