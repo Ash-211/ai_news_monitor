@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import ArticleCard from './components/ArticleCard';
 import DiscordLanding from './pages/DiscordLanding';
+import VerifyPage from './pages/VerifyPage';
 import './index.css';
 
 function App() {
@@ -176,8 +177,26 @@ function App() {
               </div>
 
               {loading ? (
-                <div className="loader">
-                  <div className="spinner"></div>
+                <div className="articles-grid">
+                  {[...Array(6)].map((_, i) => (
+                    <div className="skeleton-card" key={i}>
+                      <div className="skeleton-header">
+                        <div className="skeleton-line skeleton-shimmer" style={{ width: '40%', height: '12px' }} />
+                        <div className="skeleton-line skeleton-shimmer" style={{ width: '25%', height: '28px', borderRadius: '10px' }} />
+                      </div>
+                      <div className="skeleton-body">
+                        <div className="skeleton-line skeleton-shimmer" style={{ width: '90%', height: '18px' }} />
+                        <div className="skeleton-line skeleton-shimmer" style={{ width: '75%', height: '18px' }} />
+                        <div className="skeleton-line skeleton-shimmer" style={{ width: '100%', height: '14px', marginTop: '12px' }} />
+                        <div className="skeleton-line skeleton-shimmer" style={{ width: '85%', height: '14px' }} />
+                        <div className="skeleton-line skeleton-shimmer" style={{ width: '60%', height: '14px' }} />
+                      </div>
+                      <div className="skeleton-footer">
+                        <div className="skeleton-line skeleton-shimmer" style={{ width: '30%', height: '12px' }} />
+                        <div className="skeleton-line skeleton-shimmer" style={{ width: '20%', height: '30px', borderRadius: '10px' }} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <>
@@ -200,6 +219,7 @@ function App() {
           } />
           
           <Route path="/discord" element={<DiscordLanding />} />
+          <Route path="/verify" element={<VerifyPage />} />
         </Routes>
       </main>
     </div>

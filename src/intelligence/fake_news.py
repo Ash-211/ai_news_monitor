@@ -366,30 +366,161 @@ def load_fake_news_detector():
     return model, tokenizer
 
 
-def generate_explanation(score: float, verification_result: dict = None) -> str:
+def generate_explanation(score: float, title: str = "", content: str = "",
+                         source: str = None, verification_result: dict = None) -> str:
     """
-    Generates a natural language explanation for the DistilBERT confidence score.
+    Generates a detailed, multi-factor natural language explanation
+    for the credibility score. Analyses linguistic signals in the
+    title and content to explain WHY the model scored it this way.
     """
-    base_explanation = ""
-    if score >= 0.90:
-        base_explanation = f"The AI is highly confident ({int(score*100)}%) this article is authentic. The reporting style strictly aligns with professional journalistic standards."
-    elif score >= 0.70:
-        base_explanation = f"The AI leans toward this article being authentic ({int(score*100)}%). The text generally follows journalistic norms."
-    elif score >= 0.40:
-        base_explanation = f"The AI is uncertain about the validity of this article ({int(score*100)}%). The writing style is ambiguous and lacks strong indicators of either rigorous journalism or known misinformation."
-    elif score >= 0.20:
-        base_explanation = f"The AI suspects this article may be misleading ({int((1-score)*100)}% Fake). The text contains linguistic patterns often found in clickbait or unverified rumors."
-    else:
-        base_explanation = f"The AI determined this article is highly likely to be misinformation ({int((1-score)*100)}% Fake). The linguistic patterns heavily mimic known clickbait, propaganda, or sensationalist datasets."
-        
-    if verification_result:
+    signals = []
+    risk_factors = []
+    trust_factors = []
+
+    # ── Analyse title signals ─────────────────────────────────────────
+    if title:
+        title_upper_ratio = sum(1 for c in title if c.isupper()) / max(len(title), 1)
+        exclamation_count = title.count('!')
+        question_marks = title.count('?')
+        has_all_caps_words = any(
+            w.isupper() and len(w) > 2
+            for w in title.split()
+        )
+
+        clickbait_phrases = [
+            'you won\'t believe', 'shocking', 'breaking', 'exposed',
+            'secret', 'they don\'t want you', 'one weird trick',
+            'urgent', 'bombshell', 'gone wrong', 'mind blowing',
+            'jaw dropping', 'must see', 'what happened next'
+        ]
+        title_lower = title.lower()
+        found_clickbait = [p for p in clickbait_phrases if p in title_lower]
+
+        if has_all_caps_words or title_upper_ratio > 0.5:
+            risk_factors.append("excessive capitalisation in the headline (a common sensationalism tactic)")
+        if exclamation_count >= 2:
+            risk_factors.append(f"multiple exclamation marks ({exclamation_count}×) suggesting emotional manipulation")
+        elif exclamation_count == 1:
+            risk_factors.append("use of exclamation marks in the headline")
+        if found_clickbait:
+            risk_factors.append(f"clickbait language detected (\"{found_clickbait[0]}\")")
+        if question_marks >= 2:
+            risk_factors.append("heavy use of rhetorical questions (often used to imply unverified claims)")
+
+        # Trust signals in title
+        if not has_all_caps_words and exclamation_count == 0 and not found_clickbait:
+            trust_factors.append("the headline uses measured, factual language consistent with professional journalism")
+
+    # ── Analyse content signals ───────────────────────────────────────
+    if content and len(content.strip()) > 50:
+        word_count = len(content.split())
+        avg_word_len = sum(len(w) for w in content.split()) / max(word_count, 1)
+        sentence_count = max(content.count('.') + content.count('!') + content.count('?'), 1)
+        avg_sentence_len = word_count / sentence_count
+
+        # Content length assessment
+        if word_count >= 300:
+            trust_factors.append(f"substantial article length ({word_count} words) typical of in-depth reporting")
+        elif word_count < 80:
+            risk_factors.append(f"very short content ({word_count} words) — legitimate news articles are typically more detailed")
+
+        # Vocabulary complexity
+        if avg_word_len >= 5.0:
+            trust_factors.append("sophisticated vocabulary usage indicating domain expertise")
+
+        # Sentence structure
+        if 15 <= avg_sentence_len <= 30:
+            trust_factors.append("well-structured sentences of appropriate length for news reporting")
+        elif avg_sentence_len < 8:
+            risk_factors.append("unusually short, fragmented sentences often seen in viral misinformation")
+
+        # Attribution signals
+        attribution_words = ['according to', 'reported', 'said', 'stated', 'announced',
+                             'confirmed', 'officials', 'spokesperson', 'study', 'research',
+                             'published', 'peer-reviewed', 'data shows']
+        found_attributions = [a for a in attribution_words if a in content.lower()]
+        if len(found_attributions) >= 2:
+            trust_factors.append(f"proper source attribution detected ({', '.join(found_attributions[:3])})")
+        elif len(found_attributions) == 0 and word_count > 100:
+            risk_factors.append("no source attribution or citations found in the article body")
+
+        # Emotional language density
+        emotional_words = ['horrifying', 'terrifying', 'unbelievable', 'outrageous',
+                           'disgusting', 'insane', 'destroyed', 'slammed', 'blasted',
+                           'fury', 'rage', 'chaos', 'panic', 'nightmare']
+        content_lower = content.lower()
+        emotional_count = sum(1 for w in emotional_words if w in content_lower)
+        if emotional_count >= 3:
+            risk_factors.append(f"high density of emotionally charged language ({emotional_count} markers)")
+        elif emotional_count == 0 and word_count > 100:
+            trust_factors.append("neutral, objective tone throughout the article")
+
+    # ── Source reputation ─────────────────────────────────────────────
+    if source:
+        reputable_domains = [
+            'bbc', 'reuters', 'ap news', 'associated press', 'nytimes',
+            'washington post', 'guardian', 'ndtv', 'hindu', 'times of india',
+            'indian express', 'techcrunch', 'nature', 'science', 'bbc.com',
+            'reuters.com', 'nytimes.com', 'theguardian.com'
+        ]
+        source_lower = source.lower()
+        if any(rep in source_lower for rep in reputable_domains):
+            trust_factors.append(f"published by {source}, a recognised and established news outlet")
+
+    # ── External verification ─────────────────────────────────────────
+    if verification_result and isinstance(verification_result, dict):
         v_score = verification_result.get("verification_score", 0.5)
+        cross_ref = verification_result.get("cross_reference", {})
+        fact_check = verification_result.get("fact_check", {})
+
+        total_outlets = cross_ref.get("total_results", 0)
+        claims_found = fact_check.get("claims_found", 0)
+
         if v_score >= 0.7:
-            base_explanation += " Furthermore, the core claims are corroborated by external verification systems."
+            if total_outlets > 5:
+                trust_factors.append(f"widely corroborated — {total_outlets} other outlets are reporting the same story")
+            elif total_outlets > 0:
+                trust_factors.append(f"corroborated by {total_outlets} other news source(s)")
         elif v_score <= 0.3:
-            base_explanation += " Additionally, external fact-checkers have raised flags or cannot corroborate the core claims, strongly suggesting this is an unverified or developing story."
-            
-    return base_explanation
+            if claims_found > 0:
+                ratings = fact_check.get("ratings", [])
+                if ratings:
+                    risk_factors.append(f"professional fact-checkers have rated related claims as: {', '.join(ratings[:2])}")
+                else:
+                    risk_factors.append("external fact-checkers have flagged related claims")
+            elif total_outlets == 0:
+                risk_factors.append("no other major outlets are reporting this story, raising exclusivity concerns")
+
+    # ── Build the explanation ─────────────────────────────────────────
+    parts = []
+
+    # Verdict opener
+    if score >= 0.85:
+        parts.append(f"This article scores {int(score*100)}% on our credibility index, indicating high authenticity.")
+    elif score >= 0.60:
+        parts.append(f"This article scores {int(score*100)}% credibility — likely authentic but with some caveats.")
+    elif score >= 0.40:
+        parts.append(f"This article scores {int(score*100)}% credibility, placing it in the uncertain zone where neither authenticity nor misinformation can be confidently determined.")
+    elif score >= 0.20:
+        parts.append(f"This article scores only {int(score*100)}% credibility, indicating a significant risk of misinformation.")
+    else:
+        parts.append(f"This article scores just {int(score*100)}% credibility — our models strongly flag this as potential misinformation.")
+
+    # Trust signals
+    if trust_factors:
+        parts.append("Positive indicators: " + "; ".join(trust_factors) + ".")
+
+    # Risk signals
+    if risk_factors:
+        parts.append("Risk factors: " + "; ".join(risk_factors) + ".")
+
+    # Closing advisory
+    if score < 0.40:
+        parts.append("We recommend cross-referencing this story with established news outlets before sharing.")
+    elif score < 0.60:
+        parts.append("Exercise caution — verify key claims through independent sources.")
+
+    return " ".join(parts)
 
 
 def detect_fake_news(title: str, content: str, model=None, tokenizer=None, source: str = None, verification_result: dict = None) -> tuple:
@@ -437,7 +568,8 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
     final_score = max(0.01, min(1.0, final_score))
     is_fake = bool(final_score < FAKE_THRESHOLD)
     
-    explanation = generate_explanation(final_score, verification_result)
+    explanation = generate_explanation(final_score, title=title, content=content,
+                                       source=source, verification_result=verification_result)
     
     breakdown = {
         "explanation_text": explanation
@@ -497,7 +629,8 @@ def detect_batch(titles: list, contents: list, model=None, tokenizer=None, sourc
             final_score = max(0.01, min(1.0, content_score))
             is_fake = bool(final_score < FAKE_THRESHOLD)
             
-            explanation = generate_explanation(final_score)
+            content = contents[idx] if contents and idx < len(contents) else ""
+            explanation = generate_explanation(final_score, title=title, content=content, source=source)
             breakdown = {"explanation_text": explanation}
             
             result_map[idx] = (is_fake, final_score, breakdown)

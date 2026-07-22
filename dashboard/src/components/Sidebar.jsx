@@ -13,6 +13,7 @@ const Sidebar = ({ stats, currentFilter, setCurrentFilter }) => {
   };
 
   const isDiscordActive = location.pathname === '/discord';
+  const isVerifyActive = location.pathname === '/verify';
 
   return (
     <aside className="sidebar">
@@ -24,21 +25,21 @@ const Sidebar = ({ stats, currentFilter, setCurrentFilter }) => {
       <div className="filter-section">
         <h3>Main Intelligence</h3>
         <button 
-          className={`filter-button ${(!isDiscordActive && currentFilter === 'all') ? 'active' : ''}`}
+          className={`filter-button ${(!isDiscordActive && !isVerifyActive && currentFilter === 'all') ? 'active' : ''}`}
           onClick={() => handleFilterClick('all')}
         >
           <span>Global Feed</span>
           <span className="badge">{stats?.total_articles || 0}</span>
         </button>
         <button 
-          className={`filter-button ${(!isDiscordActive && currentFilter === 'real') ? 'active' : ''}`}
+          className={`filter-button ${(!isDiscordActive && !isVerifyActive && currentFilter === 'real') ? 'active' : ''}`}
           onClick={() => handleFilterClick('real')}
         >
           <span>Verified Authentic</span>
           <span className="badge">{stats?.real_articles || 0}</span>
         </button>
         <button 
-          className={`filter-button ${(!isDiscordActive && currentFilter === 'fake') ? 'active' : ''}`}
+          className={`filter-button ${(!isDiscordActive && !isVerifyActive && currentFilter === 'fake') ? 'active' : ''}`}
           onClick={() => handleFilterClick('fake')}
         >
           <span>Flagged Fake</span>
@@ -65,6 +66,23 @@ const Sidebar = ({ stats, currentFilter, setCurrentFilter }) => {
           </svg>
           <span>Discord Bot</span>
         </button>
+        <button 
+          className={`filter-button ${isVerifyActive ? 'active' : ''}`}
+          onClick={() => navigate('/verify')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            color: isVerifyActive ? 'var(--accent-primary)' : 'var(--text-muted)',
+            backgroundColor: isVerifyActive ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
+            fontWeight: isVerifyActive ? '600' : '500'
+          }}
+        >
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+          <span>Verify URL</span>
+        </button>
       </div>
 
       <div className="filter-section" style={{ marginTop: 'auto' }}>
@@ -72,7 +90,7 @@ const Sidebar = ({ stats, currentFilter, setCurrentFilter }) => {
         {stats?.categories && Object.entries(stats.categories).map(([category, count]) => (
           <button 
             key={category}
-            className={`filter-button ${(!isDiscordActive && currentFilter === category) ? 'active' : ''}`}
+            className={`filter-button ${(!isDiscordActive && !isVerifyActive && currentFilter === category) ? 'active' : ''}`}
             onClick={() => handleFilterClick(category)}
           >
             <span style={{ textTransform: 'capitalize' }}>{category}</span>

@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Query
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
@@ -364,5 +365,28 @@ def api_refresh_fts():
     # Also bust the cache since new articles arrived
     _cache.clear()
     return {"status": "ok"}
+
+# ── Verify URL (on-demand single-article pipeline) ────────────────────────────
+class VerifyRequest(BaseModel):
+    url: str
+
+@app.post("/api/verify")
+def api_verify_url(payload: VerifyRequest):
+    """
+    Accepts a news article URL, scrapes it, and runs the full intelligence
+    pipeline (classify, fake-news detect, keyword extract, fact-check).
+    Returns the analysis results without saving to the database.
+    """
+    url = payload.url.strip()
+    if not url:
+        return {"error": "No URL provided."}
+
+    try:
+        from src.intelligence.url_verifier import verify_url
+        result = verify_url(url)
+        return result
+    except Exception as e:
+        logging.exception("Verify URL endpoint error")
+        return {"error": f"Verification failed: {str(e)}"}
 
 # ── Intelligence Pipeline Trigger (Optional Internal) ─────────────────────────

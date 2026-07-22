@@ -103,7 +103,8 @@ async def main():
     # Load command cogs
     await bot.load_extension("src.bot.cogs.news_commands")
     await bot.load_extension("src.bot.cogs.scheduler")
-    print("   Cogs loaded: news_commands, scheduler")
+    await bot.load_extension("src.bot.cogs.verify_commands")
+    print("   Cogs loaded: news_commands, scheduler, verify_commands")
 
     # Start the keep-alive web server in the background
     await start_keepalive_server()

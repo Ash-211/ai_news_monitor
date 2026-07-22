@@ -511,6 +511,96 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0 0.5rem;
 }
 
+/* ── Skeleton Loading Cards ──────────────────────────────────────── */
+@keyframes skeletonShimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  animation: skeletonFadeIn 0.4s ease-out;
+}
+
+@keyframes skeletonFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.skeleton-header {
+  padding: 1.75rem 1.75rem 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.skeleton-body {
+  padding: 0.75rem 1.75rem 1.5rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.skeleton-footer {
+  padding: 1.5rem 1.75rem;
+  border-top: 1px solid #f1f5f9;
+  background: #fafafa;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+
+.skeleton-line {
+  border-radius: 6px;
+  background: #e2e8f0;
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    #e2e8f0 0%,
+    #f1f5f9 40%,
+    #e2e8f0 80%
+  );
+  background-size: 800px 100%;
+  animation: skeletonShimmer 1.6s ease-in-out infinite;
+}
+
+/* Apply staggered animation delays to each skeleton card */
+.skeleton-card:nth-child(1) .skeleton-shimmer { animation-delay: 0s; }
+.skeleton-card:nth-child(2) .skeleton-shimmer { animation-delay: 0.1s; }
+.skeleton-card:nth-child(3) .skeleton-shimmer { animation-delay: 0.2s; }
+.skeleton-card:nth-child(4) .skeleton-shimmer { animation-delay: 0.3s; }
+.skeleton-card:nth-child(5) .skeleton-shimmer { animation-delay: 0.4s; }
+.skeleton-card:nth-child(6) .skeleton-shimmer { animation-delay: 0.5s; }
+
+/* ── Article Card Fade-In ──────────────────────────────────────────── */
+.article-card {
+  animation: articleFadeIn 0.4s ease-out both;
+}
+
+.articles-grid .article-card:nth-child(1) { animation-delay: 0s; }
+.articles-grid .article-card:nth-child(2) { animation-delay: 0.05s; }
+.articles-grid .article-card:nth-child(3) { animation-delay: 0.1s; }
+.articles-grid .article-card:nth-child(4) { animation-delay: 0.15s; }
+.articles-grid .article-card:nth-child(5) { animation-delay: 0.2s; }
+.articles-grid .article-card:nth-child(6) { animation-delay: 0.25s; }
+.articles-grid .article-card:nth-child(n+7) { animation-delay: 0.3s; }
+
+@keyframes articleFadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* Existing responsive adjustments */
 @media (max-width: 1024px) {
   .sidebar {
