@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request, Response
+import asyncio
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
@@ -388,5 +389,66 @@ def api_verify_url(payload: VerifyRequest):
     except Exception as e:
         logging.exception("Verify URL endpoint error")
         return {"error": f"Verification failed: {str(e)}"}
+
+# ── WhatsApp Webhook (Meta Cloud API) ─────────────────────────────────────────
+# GET  /whatsapp-webhook  → Verification handshake (Meta confirms our server)
+# POST /whatsapp-webhook  → Incoming messages from users
+
+WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "ai-news-bot-verify-token")
+
+@app.get("/whatsapp-webhook")
+def whatsapp_verify(request: Request):
+    """
+    Meta sends a GET request with hub.mode, hub.verify_token, and hub.challenge
+    when you register the webhook URL in the Meta Developer dashboard.
+    We must echo back hub.challenge if the token matches.
+    """
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+
+    if mode == "subscribe" and token == WHATSAPP_VERIFY_TOKEN:
+        logging.info("✅ WhatsApp webhook verified successfully.")
+        return Response(content=challenge, media_type="text/plain")
+    else:
+        logging.warning("⚠️ WhatsApp webhook verification failed. Token mismatch.")
+        return Response(content="Forbidden", status_code=403)
+
+
+@app.post("/whatsapp-webhook")
+async def whatsapp_incoming(request: Request):
+    """
+    Receives incoming WhatsApp messages from Meta's Cloud API.
+    Extracts the sender's phone number and message text, then
+    delegates to the WhatsApp handler for processing.
+    """
+    body = await request.json()
+
+    try:
+        # Navigate Meta's nested webhook payload structure
+        entry = body.get("entry", [{}])[0]
+        changes = entry.get("changes", [{}])[0]
+        value = changes.get("value", {})
+        messages = value.get("messages", [])
+
+        for msg in messages:
+            # Only process text messages for now
+            if msg.get("type") != "text":
+                continue
+
+            from_number = msg.get("from", "")
+            message_text = msg.get("text", {}).get("body", "")
+
+            if from_number and message_text:
+                # Process in background so we return 200 quickly
+                # (Meta expects a fast response to avoid retries)
+                from src.whatsapp_bot.handler import handle_incoming_message
+                asyncio.create_task(handle_incoming_message(from_number, message_text))
+
+    except (IndexError, KeyError, TypeError) as e:
+        logging.warning("⚠️ Could not parse WhatsApp webhook payload: %s", e)
+
+    # Always return 200 to acknowledge receipt (Meta retries on non-200)
+    return {"status": "ok"}
 
 # ── Intelligence Pipeline Trigger (Optional Internal) ─────────────────────────
