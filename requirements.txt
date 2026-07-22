@@ -1,0 +1,43 @@
+# Data Ingestion
+newsapi-python==0.2.7
+python-dateutil==2.8.2
+feedparser==6.0.10
+newspaper3k==0.2.8
+lxml_html_clean
+SQLAlchemy==2.0.25
+schedule==1.2.1
+python-dotenv==1.0.1
+requests==2.31.0
+
+# NLP Preprocessing
+nltk==3.8.1
+spacy==3.7.2
+
+# Core Intelligence & ML
+scikit-learn==1.4.0
+gensim==4.3.2
+pandas==2.2.0
+datasets>=2.16.0
+
+# Briefing Generation
+transformers==4.37.2
+torch==2.1.2 
+
+# Presentation Layer
+streamlit==1.31.0
+matplotlib==3.8.2
+seaborn==0.13.2
+
+# API Backend
+fastapi==0.109.2
+uvicorn==0.27.1
+
+# Database (PostgreSQL support for Neon)
+psycopg2-binary==2.9.9
+
+# Discord Bot
+discord.py==2.5.2
+aiohttp>=3.9.0
+
+# WhatsApp Bot (Meta Cloud API)
+httpx>=0.27.0

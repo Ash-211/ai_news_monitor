@@ -1,0 +1,62 @@
+name: Wake Up Render Services (Morning Alarm)
+
+# ============================================================================
+# This workflow acts as a "morning alarm clock" for your Render services.
+#
+# HOW IT WORKS:
+#   1. GitHub Actions pings your services every 14 min during active hours
+#   2. Once a service wakes up, it has a SELF-PING thread built into the code
+#      that keeps it alive every 4 minutes (100% reliable, no external deps)
+#   3. At 9 PM IST, the self-ping stops → Render spins down naturally
+#
+# WHY THIS APPROACH:
+#   - GitHub Actions cron can be delayed 15-30 min (unreliable for keep-alive)
+#   - But it's reliable ENOUGH to wake up a service at least once
+#   - Once awake, the app's internal self-ping takes over (never delayed)
+#
+# HOURS MATH:
+#   2 services × 11 hrs × 31 days = 682 hrs/month (under 750 limit ✅)
+# ============================================================================
+
+on:
+  schedule:
+    # Every 14 minutes during active IST hours (4:30 AM - 3:30 PM UTC = 10 AM - 9 PM IST)
+    # GitHub may delay, but we just need ONE ping to land to wake up the service
+    - cron: '*/14 * * * *'
+  workflow_dispatch: # Manual trigger for testing
+
+jobs:
+  wake-up:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check if within active hours (10 AM - 9 PM IST)
+        id: time_check
+        run: |
+          # Get current hour in IST (UTC+5:30)
+          CURRENT_HOUR=$(TZ='Asia/Kolkata' date +%H)
+          echo "Current IST hour: $CURRENT_HOUR"
+
+          if [ "$CURRENT_HOUR" -ge 10 ] && [ "$CURRENT_HOUR" -lt 21 ]; then
+            echo "✅ Within active hours. Waking up services..."
+            echo "should_ping=true" >> $GITHUB_OUTPUT
+          else
+            echo "😴 Outside active hours ($CURRENT_HOUR IST). Skipping."
+            echo "should_ping=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Wake up FastAPI Backend
+        if: steps.time_check.outputs.should_ping == 'true'
+        run: |
+          echo "Pinging FastAPI service..."
+          curl -sf --max-time 30 "${{ secrets.RENDER_FASTAPI_URL }}/health" || echo "⚠️ FastAPI may be cold-starting (normal)"
+
+      - name: Wake up Discord Bot Backend
+        if: steps.time_check.outputs.should_ping == 'true'
+        run: |
+          echo "Pinging Discord Bot service..."
+          curl -sf --max-time 30 "${{ secrets.RENDER_DISCORD_BOT_URL }}/ping" || echo "⚠️ Bot may be cold-starting (normal)"
+
+      - name: Done
+        if: steps.time_check.outputs.should_ping == 'true'
+        run: echo "✅ Wake-up pings sent at $(TZ='Asia/Kolkata' date '+%I:%M %p IST'). Self-ping will take over."
