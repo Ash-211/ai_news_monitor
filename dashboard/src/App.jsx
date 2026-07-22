@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import ArticleCard from './components/ArticleCard';
 import DiscordLanding from './pages/DiscordLanding';
+import WhatsAppLanding from './pages/WhatsAppLanding';
 import VerifyPage from './pages/VerifyPage';
 import './index.css';
 
@@ -219,6 +220,7 @@ function App() {
           } />
           
           <Route path="/discord" element={<DiscordLanding />} />
+          <Route path="/whatsapp" element={<WhatsAppLanding />} />
           <Route path="/verify" element={<VerifyPage />} />
         </Routes>
       </main>

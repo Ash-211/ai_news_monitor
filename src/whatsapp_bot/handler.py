@@ -21,12 +21,16 @@ from typing import Optional
 from sqlalchemy import func
 
 from src.ingestion.database import Article, get_session
-from src.whatsapp_bot.sender import send_whatsapp_message
+from src.whatsapp_bot.sender import send_whatsapp_message, send_interactive_buttons, send_interactive_list
 
 logger = logging.getLogger("whatsapp_bot.handler")
 
 MAX_ARTICLES = 5
 MAX_SUMMARY_LEN = 150
+
+# In-memory session tracking for pagination
+# Keyed by phone number, stores last command context
+user_sessions = {}  # { "919876543210": {"command": "news", "page": 1, "query": None, "category": None, "target_date": None} }
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -45,25 +49,52 @@ async def handle_incoming_message(from_number: str, message_text: str) -> None:
     logger.info("📩 Message from %s: %s", from_number, text[:100])
 
     try:
+        response = None
         if text in ("hi", "hello", "hey", "start"):
             response = _welcome_message()
 
-        elif text in ("help", "menu", "commands", "?"):
+        elif text in ("help", "menu", "commands", "?", "show_help"):
             response = _help_message()
 
         elif text in ("news", "latest", "today", "daily"):
-            response = _get_latest_news()
+            response, target_date = _get_latest_news(page=1)
+            user_sessions[from_number] = {"command": "news", "page": 1, "target_date": target_date}
 
-        elif text == "categories":
-            response = _get_categories()
+        elif text in ("categories", "show_categories"):
+            response = await _get_categories(from_number)
 
         elif text.startswith("category "):
             category_name = message_text.strip()[9:].strip()
-            response = _get_news_by_category(category_name)
+            response = _get_news_by_category(category_name, page=1)
+            user_sessions[from_number] = {"command": "category", "page": 1, "category": category_name}
+            
+        elif text.startswith("cat_"):
+            category_name = text[4:].replace("_", " ")
+            response = _get_news_by_category(category_name, page=1)
+            user_sessions[from_number] = {"command": "category", "page": 1, "category": category_name}
 
         elif text.startswith("search "):
             query = message_text.strip()[7:].strip()
-            response = _search_news(query)
+            response = _search_news(query, page=1)
+            user_sessions[from_number] = {"command": "search", "page": 1, "query": query}
+            
+        elif text in ("more", "more_news"):
+            session = user_sessions.get(from_number)
+            if session:
+                session["page"] += 1
+                if session["command"] == "news":
+                    response, target_date = _get_latest_news(page=session["page"], target_date=session.get("target_date"))
+                    session["target_date"] = target_date
+                elif session["command"] == "search":
+                    response = _search_news(session["query"], page=session["page"])
+                elif session["command"] == "category":
+                    response = _get_news_by_category(session["category"], page=session["page"])
+                else:
+                    response, target_date = _get_latest_news(page=1)
+                    user_sessions[from_number] = {"command": "news", "page": 1, "target_date": target_date}
+            else:
+                response, target_date = _get_latest_news(page=1)
+                user_sessions[from_number] = {"command": "news", "page": 1, "target_date": target_date}
 
         elif text.startswith("verify "):
             url = message_text.strip()[7:].strip()
@@ -72,7 +103,16 @@ async def handle_incoming_message(from_number: str, message_text: str) -> None:
         else:
             response = _unknown_command()
 
-        await send_whatsapp_message(from_number, response)
+        if response is not None:
+            await send_whatsapp_message(from_number, response)
+            
+            # Send interactive buttons after text response
+            buttons = [
+                {"id": "more_news", "title": "📰 More News"},
+                {"id": "show_categories", "title": "📂 Categories"},
+                {"id": "show_help", "title": "❓ Help"}
+            ]
+            await send_interactive_buttons(from_number, "What would you like to do next?", buttons)
 
     except Exception as e:
         logger.exception("❌ Error handling message from %s: %s", from_number, e)
@@ -118,34 +158,44 @@ def _unknown_command() -> str:
 
 # ── Latest News ────────────────────────────────────────────────────────────
 
-def _get_latest_news() -> str:
+def _get_latest_news(page: int = 1, target_date: Optional[date] = None) -> tuple[str, Optional[date]]:
     """Fetch the latest articles (today or most recent date)."""
     session = get_session()
     try:
-        # Try today first
-        target_date = date.today()
-        articles = _fetch_articles(session, target_date=target_date, limit=MAX_ARTICLES)
+        offset = (page - 1) * MAX_ARTICLES
+        
+        if not target_date:
+            target_date = date.today()
+            articles = _fetch_articles(session, target_date=target_date, limit=MAX_ARTICLES, offset=offset)
+
+            if not articles and page == 1:
+                # Fall back to the most recent date with articles
+                latest = (
+                    session.query(Article)
+                    .order_by(Article.published_at.desc())
+                    .first()
+                )
+                if latest and latest.published_at:
+                    target_date = latest.published_at.date()
+                    articles = _fetch_articles(session, target_date=target_date, limit=MAX_ARTICLES, offset=offset)
+        else:
+            articles = _fetch_articles(session, target_date=target_date, limit=MAX_ARTICLES, offset=offset)
+
+        if not articles:
+            return "📭 No news articles found in the database. Check back later!", None
+            
+        total_count = _count_articles(session, target_date=target_date)
+        total_pages = (total_count + MAX_ARTICLES - 1) // MAX_ARTICLES
+        page_info = f" (page {page}/{total_pages})" if total_pages > 1 else ""
 
         fallback_note = ""
-        if not articles:
-            # Fall back to the most recent date with articles
-            latest = (
-                session.query(Article)
-                .order_by(Article.published_at.desc())
-                .first()
-            )
-            if latest and latest.published_at:
-                target_date = latest.published_at.date()
-                articles = _fetch_articles(session, target_date=target_date, limit=MAX_ARTICLES)
-                fallback_note = f"\n_No news today. Showing latest from {target_date.strftime('%B %d, %Y')}._\n"
+        if target_date != date.today():
+            fallback_note = f"\n_No news today. Showing latest from {target_date.strftime('%B %d, %Y')}._\n"
 
-        if not articles:
-            return "📭 No news articles found in the database. Check back later!"
-
-        header = f"📰 *Latest News* ({len(articles)} articles){fallback_note}\n"
+        header = f"📰 *Latest News*{page_info} ({total_count} articles){fallback_note}\n\n"
         body = "\n".join(_format_article(i + 1, a) for i, a in enumerate(articles))
 
-        return header + body
+        return header + body, target_date
 
     finally:
         session.close()
@@ -153,19 +203,24 @@ def _get_latest_news() -> str:
 
 # ── Search ─────────────────────────────────────────────────────────────────
 
-def _search_news(query: str) -> str:
+def _search_news(query: str, page: int = 1) -> str:
     """Search articles by keyword in title, keywords, or category."""
     if not query:
         return "⚠️ Please provide a search term.\n_Example: search AI_"
 
     session = get_session()
     try:
-        articles = _fetch_articles(session, tag=query, limit=MAX_ARTICLES)
+        offset = (page - 1) * MAX_ARTICLES
+        articles = _fetch_articles(session, tag=query, limit=MAX_ARTICLES, offset=offset)
 
         if not articles:
             return f"📭 No results found for *{query}*.\nTry a different keyword."
+            
+        total_count = _count_articles(session, tag=query)
+        total_pages = (total_count + MAX_ARTICLES - 1) // MAX_ARTICLES
+        page_info = f" (page {page}/{total_pages})" if total_pages > 1 else ""
 
-        header = f"🔍 *Search results for \"{query}\"* ({len(articles)} found)\n\n"
+        header = f"🔍 *Search results for \"{query}\"*{page_info} ({total_count} found)\n\n"
         body = "\n".join(_format_article(i + 1, a) for i, a in enumerate(articles))
         return header + body
 
@@ -175,7 +230,7 @@ def _search_news(query: str) -> str:
 
 # ── Categories ─────────────────────────────────────────────────────────────
 
-def _get_categories() -> str:
+async def _get_categories(to: str) -> Optional[str]:
     """List all news categories with article counts."""
     session = get_session()
     try:
@@ -190,31 +245,52 @@ def _get_categories() -> str:
         if not rows:
             return "📭 No categories found."
 
-        header = "📂 *News Categories:*\n\n"
-        lines = []
+        sections = [{
+            "title": "News Categories",
+            "rows": []
+        }]
+        
         for cat, count in rows:
-            lines.append(f"• *{cat}* — {count} article(s)")
+            cat_id = f"cat_{cat.replace(' ', '_').lower()}"
+            sections[0]["rows"].append({
+                "id": cat_id[:200],
+                "title": cat[:24],
+                "description": f"{count} articles"
+            })
+            if len(sections[0]["rows"]) == 10:
+                break
 
-        footer = "\n\n_Type *category <name>* to browse a category._"
-        return header + "\n".join(lines) + footer
+        await send_interactive_list(
+            to=to,
+            body="Here are the available news categories:",
+            button_text="View Categories",
+            sections=sections,
+            header="📂 News Categories"
+        )
+        return None
 
     finally:
         session.close()
 
 
-def _get_news_by_category(category_name: str) -> str:
+def _get_news_by_category(category_name: str, page: int = 1) -> str:
     """Fetch articles in a specific category."""
     if not category_name:
         return "⚠️ Please specify a category.\n_Example: category Sci/Tech_"
 
     session = get_session()
     try:
-        articles = _fetch_articles(session, category=category_name, limit=MAX_ARTICLES)
+        offset = (page - 1) * MAX_ARTICLES
+        articles = _fetch_articles(session, category=category_name, limit=MAX_ARTICLES, offset=offset)
 
         if not articles:
             return f"📭 No articles found in category *{category_name}*.\nType *categories* to see all options."
 
-        header = f"📂 *{category_name}* — {len(articles)} article(s)\n\n"
+        total_count = _count_articles(session, category=category_name)
+        total_pages = (total_count + MAX_ARTICLES - 1) // MAX_ARTICLES
+        page_info = f" (page {page}/{total_pages})" if total_pages > 1 else ""
+
+        header = f"📂 *{category_name}*{page_info} — {total_count} article(s)\n\n"
         body = "\n".join(_format_article(i + 1, a) for i, a in enumerate(articles))
         return header + body
 
@@ -230,8 +306,9 @@ async def _verify_url(url: str) -> str:
         return "⚠️ Please provide a valid URL.\n_Example: verify https://example.com/article_"
 
     try:
+        import asyncio
         from src.intelligence.url_verifier import verify_url
-        data = verify_url(url)
+        data = await asyncio.to_thread(verify_url, url)
     except Exception as e:
         logger.exception("Verify URL error: %s", e)
         return f"❌ Verification failed: {str(e)}"
@@ -300,6 +377,7 @@ def _fetch_articles(
     target_date: Optional[date] = None,
     tag: Optional[str] = None,
     limit: int = 5,
+    offset: int = 0,
 ) -> list:
     """
     Query the database for articles, matching the Discord bot's
@@ -323,7 +401,34 @@ def _fetch_articles(
             | (Article.category.ilike(f"%{tag_term}%"))
         )
 
-    return query.order_by(Article.published_at.desc(), Article.id.desc()).limit(limit).all()
+    return query.order_by(Article.published_at.desc(), Article.id.desc()).offset(offset).limit(limit).all()
+
+
+def _count_articles(
+    session,
+    category: Optional[str] = None,
+    target_date: Optional[date] = None,
+    tag: Optional[str] = None,
+) -> int:
+    query = session.query(func.count(Article.id))
+
+    if target_date:
+        start = datetime.combine(target_date, datetime.min.time())
+        end = datetime.combine(target_date + timedelta(days=1), datetime.min.time())
+        query = query.filter(Article.published_at >= start, Article.published_at < end)
+
+    if category and category.lower() != "all":
+        query = query.filter(func.lower(Article.category) == category.lower())
+
+    if tag:
+        tag_term = tag.strip()
+        query = query.filter(
+            (Article.title.ilike(f"%{tag_term}%"))
+            | (Article.keywords.ilike(f"%{tag_term}%"))
+            | (Article.category.ilike(f"%{tag_term}%"))
+        )
+
+    return query.scalar()
 
 
 def _format_article(index: int, article: Article) -> str:
@@ -362,8 +467,11 @@ def _format_article(index: int, article: Article) -> str:
     if article.published_at:
         pub = article.published_at.strftime("%b %d, %Y")
 
+    number_emojis = {1: '①', 2: '②', 3: '③', 4: '④', 5: '⑤'}
+    emoji = number_emojis.get((index - 1) % 5 + 1, str(index))
+    
     lines = [
-        f"*{index}. {article.title}*",
+        f"{emoji} *{article.title}*",
         f"_{summary}_",
         f"📂 {category}  |  🛡️ {cred}  |  📡 {source}",
     ]
@@ -371,6 +479,6 @@ def _format_article(index: int, article: Article) -> str:
         lines[2] += f"  |  📅 {pub}"
 
     lines.append(f"🔗 {article.url}")
-    lines.append("")  # Blank line between articles
+    lines.append("━━━━━━")  # Horizontal line separator
 
     return "\n".join(lines)

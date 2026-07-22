@@ -82,6 +82,92 @@ async def send_whatsapp_message(to: str, body: str) -> dict:
     return last_response
 
 
+async def send_interactive_buttons(to: str, body: str, buttons: list, header: str = None, footer: str = None) -> dict:
+    if not WHATSAPP_TOKEN or not WHATSAPP_PHONE_ID:
+        logger.error("❌ WHATSAPP_TOKEN or WHATSAPP_PHONE_ID not set in environment.")
+        return {"error": "WhatsApp credentials not configured."}
+
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body},
+            "footer": {"text": footer or "Powered by DailyNewsAI"},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": btn["id"], "title": btn["title"]}}
+                    for btn in buttons[:3]
+                ]
+            }
+        }
+    }
+    if header:
+        payload["interactive"]["header"] = {"type": "text", "text": header}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.post(BASE_URL, headers=headers, json=payload)
+            response_json = resp.json()
+            if resp.status_code != 200:
+                logger.error("⚠️ WhatsApp API error (status %s): %s", resp.status_code, response_json)
+            else:
+                logger.info("✅ Interactive buttons sent to %s", to)
+            return response_json
+        except httpx.HTTPError as e:
+            logger.exception("❌ HTTP error sending WhatsApp interactive buttons: %s", e)
+            return {"error": str(e)}
+
+
+async def send_interactive_list(to: str, body: str, button_text: str, sections: list, header: str = None, footer: str = None) -> dict:
+    if not WHATSAPP_TOKEN or not WHATSAPP_PHONE_ID:
+        logger.error("❌ WHATSAPP_TOKEN or WHATSAPP_PHONE_ID not set in environment.")
+        return {"error": "WhatsApp credentials not configured."}
+
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": body},
+            "footer": {"text": footer or "Powered by DailyNewsAI"},
+            "action": {
+                "button": button_text,
+                "sections": sections
+            }
+        }
+    }
+    if header:
+        payload["interactive"]["header"] = {"type": "text", "text": header}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.post(BASE_URL, headers=headers, json=payload)
+            response_json = resp.json()
+            if resp.status_code != 200:
+                logger.error("⚠️ WhatsApp API error (status %s): %s", resp.status_code, response_json)
+            else:
+                logger.info("✅ Interactive list sent to %s", to)
+            return response_json
+        except httpx.HTTPError as e:
+            logger.exception("❌ HTTP error sending WhatsApp interactive list: %s", e)
+            return {"error": str(e)}
+
+
 def _split_message(text: str, max_len: int) -> list[str]:
     """
     Split a long message into chunks that fit within WhatsApp's character limit.
