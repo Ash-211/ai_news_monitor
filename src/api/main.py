@@ -432,13 +432,18 @@ async def whatsapp_incoming(request: Request):
         messages = value.get("messages", [])
 
         for msg in messages:
-            # Only process text messages for now
-            if msg.get("type") != "text":
-                continue
-
             from_number = msg.get("from", "")
-            message_text = msg.get("text", {}).get("body", "")
-
+            message_text = ""
+            
+            if msg.get("type") == "text":
+                message_text = msg.get("text", {}).get("body", "")
+            elif msg.get("type") == "interactive":
+                interactive = msg.get("interactive", {})
+                if interactive.get("type") == "button_reply":
+                    message_text = interactive.get("button_reply", {}).get("id", "")
+                elif interactive.get("type") == "list_reply":
+                    message_text = interactive.get("list_reply", {}).get("id", "")
+            
             if from_number and message_text:
                 # Process in background so we return 200 quickly
                 # (Meta expects a fast response to avoid retries)
@@ -450,5 +455,10 @@ async def whatsapp_incoming(request: Request):
 
     # Always return 200 to acknowledge receipt (Meta retries on non-200)
     return {"status": "ok"}
+
+@app.get("/api/whatsapp-info")
+def get_whatsapp_info():
+    bot_number = os.getenv("WHATSAPP_BOT_NUMBER", "")
+    return {"bot_number": bot_number, "available": bool(bot_number)}
 
 # ── Intelligence Pipeline Trigger (Optional Internal) ─────────────────────────
