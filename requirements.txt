@@ -39,5 +39,10 @@ psycopg2-binary==2.9.9
 discord.py==2.5.2
 aiohttp>=3.9.0
 
+# Deepfake Detection
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+
 # WhatsApp Bot (Meta Cloud API)
 httpx>=0.27.0

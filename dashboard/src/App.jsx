@@ -5,6 +5,7 @@ import ArticleCard from './components/ArticleCard';
 import DiscordLanding from './pages/DiscordLanding';
 import WhatsAppLanding from './pages/WhatsAppLanding';
 import VerifyPage from './pages/VerifyPage';
+import DeepfakePage from './pages/DeepfakePage';
 import './index.css';
 
 function App() {
@@ -222,6 +223,7 @@ function App() {
           <Route path="/discord" element={<DiscordLanding />} />
           <Route path="/whatsapp" element={<WhatsAppLanding />} />
           <Route path="/verify" element={<VerifyPage />} />
+          <Route path="/deepfake" element={<DeepfakePage />} />
         </Routes>
       </main>
     </div>
