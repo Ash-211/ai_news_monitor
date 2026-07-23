@@ -491,36 +491,52 @@ def generate_explanation(score: float, title: str = "", content: str = "",
             elif total_outlets == 0:
                 risk_factors.append("no other major outlets are reporting this story, raising exclusivity concerns")
 
-    # ── Build the explanation ─────────────────────────────────────────
-    parts = []
+    # ── Build the explanation prompt ──────────────────────────────────
+    prompt = f"Article Title: {title}\n"
+    if source: prompt += f"Source: {source}\n"
+    prompt += f"Credibility Score: {int(score*100)}%\n"
+    if trust_factors: prompt += f"Positive indicators: {', '.join(trust_factors)}.\n"
+    if risk_factors: prompt += f"Risk factors: {', '.join(risk_factors)}.\n"
+    prompt += "\nWrite a detailed, dynamic explanation of exactly what the AI models think about this article's credibility based on the given indicators. Your explanation must be between 5 and 7 sentences long and professionally explain the reasoning."
 
-    # Verdict opener
-    if score >= 0.85:
-        parts.append(f"This article scores {int(score*100)}% on our credibility index, indicating high authenticity.")
-    elif score >= 0.60:
-        parts.append(f"This article scores {int(score*100)}% credibility — likely authentic but with some caveats.")
-    elif score >= 0.40:
-        parts.append(f"This article scores {int(score*100)}% credibility, placing it in the uncertain zone where neither authenticity nor misinformation can be confidently determined.")
-    elif score >= 0.20:
-        parts.append(f"This article scores only {int(score*100)}% credibility, indicating a significant risk of misinformation.")
-    else:
-        parts.append(f"This article scores just {int(score*100)}% credibility — our models strongly flag this as potential misinformation.")
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        import torch
+        model_id = "Qwen/Qwen2.5-0.5B-Instruct"
+        
+        # We load it lazily to save startup time if XAI isn't hit
+        global _xai_model, _xai_tokenizer
+        if '_xai_model' not in globals():
+            _xai_tokenizer = AutoTokenizer.from_pretrained(model_id)
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            dtype = torch.float16 if device == "cuda" else torch.float32
+            _xai_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=dtype).to(device)
+            _xai_model.eval()
 
-    # Trust signals
-    if trust_factors:
-        parts.append("Positive indicators: " + "; ".join(trust_factors) + ".")
-
-    # Risk signals
-    if risk_factors:
-        parts.append("Risk factors: " + "; ".join(risk_factors) + ".")
-
-    # Closing advisory
-    if score < 0.40:
-        parts.append("We recommend cross-referencing this story with established news outlets before sharing.")
-    elif score < 0.60:
-        parts.append("Exercise caution — verify key claims through independent sources.")
-
-    return " ".join(parts)
+        messages = [
+            {"role": "system", "content": "You are a professional AI news verification assistant. You provide detailed, analytical reasoning for credibility scores."},
+            {"role": "user", "content": prompt}
+        ]
+        text = _xai_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        inputs = _xai_tokenizer([text], return_tensors="pt").to(_xai_model.device)
+        
+        with torch.no_grad():
+            outputs = _xai_model.generate(**inputs, max_new_tokens=250, temperature=0.75, do_sample=True)
+        explanation = _xai_tokenizer.decode(outputs[0][len(inputs.input_ids[0]):], skip_special_tokens=True).strip()
+        
+        # Fallback if generated string is empty
+        if len(explanation) < 10:
+            raise ValueError("Empty explanation generated.")
+            
+        return explanation
+    except Exception as e:
+        print(f"XAI Generation Error: {e}")
+        # Fallback to a basic template if the LLM fails or is downloading
+        if score >= 0.60:
+            return f"This article scores {int(score*100)}% credibility, indicating it is likely authentic."
+        elif score >= 0.40:
+            return f"This article scores {int(score*100)}% credibility, placing it in an uncertain zone."
+        return f"This article scores {int(score*100)}% credibility, indicating potential misinformation."
 
 
 def detect_fake_news(title: str, content: str, model=None, tokenizer=None, source: str = None, verification_result: dict = None) -> tuple:

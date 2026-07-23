@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query, Request, Response
+from fastapi import FastAPI, Query, Request, Response, UploadFile, File
 import asyncio
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -460,5 +460,74 @@ async def whatsapp_incoming(request: Request):
 def get_whatsapp_info():
     bot_number = os.getenv("WHATSAPP_BOT_NUMBER", "")
     return {"bot_number": bot_number, "available": bool(bot_number)}
+
+# ── Deepfake Detection ────────────────────────────────────────────────────────
+
+# Allowed file types and size limits for deepfake analysis
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
+ALLOWED_VIDEO_TYPES = {"video/mp4", "video/avi", "video/quicktime", "video/x-msvideo", "video/webm"}
+MAX_IMAGE_SIZE = 10 * 1024 * 1024   # 10 MB
+MAX_VIDEO_SIZE = 50 * 1024 * 1024   # 50 MB
+
+@app.post("/api/deepfake/analyze")
+async def analyze_deepfake(file: UploadFile = File(...)):
+    """
+    Accepts an uploaded image or video file, runs it through the
+    deepfake detection AI model, and returns a verdict with confidence
+    scores and a human-readable explanation.
+
+    Supported formats:
+      Images: jpg, png, webp (max 10 MB)
+      Videos: mp4, avi, mov, webm (max 50 MB)
+    """
+    import tempfile
+
+    content_type = file.content_type or ""
+    is_image = content_type in ALLOWED_IMAGE_TYPES
+    is_video = content_type in ALLOWED_VIDEO_TYPES
+
+    # ── Validate file type ────────────────────────────────────────────
+    if not is_image and not is_video:
+        return {
+            "error": f"Unsupported file type: {content_type}. "
+                     f"Please upload an image (jpg, png, webp) or video (mp4, avi, mov, webm)."
+        }
+
+    # ── Validate file size ────────────────────────────────────────────
+    contents = await file.read()
+    max_size = MAX_VIDEO_SIZE if is_video else MAX_IMAGE_SIZE
+    if len(contents) > max_size:
+        limit_mb = max_size // (1024 * 1024)
+        return {"error": f"File too large. Maximum size is {limit_mb} MB."}
+
+    # ── Save to temp file and analyze ─────────────────────────────────
+    suffix = os.path.splitext(file.filename or "upload")[1] or (".png" if is_image else ".mp4")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    try:
+        tmp.write(contents)
+        tmp.close()
+
+        if is_image:
+            from src.intelligence.deepfake_detector import detect_deepfake_image
+            result = detect_deepfake_image(tmp.name)
+        else:
+            from src.intelligence.deepfake_detector import detect_deepfake_video
+            result = detect_deepfake_video(tmp.name)
+
+        # Tag the result with the media type for the frontend
+        result["media_type"] = "image" if is_image else "video"
+        result["filename"] = file.filename
+        return result
+
+    except Exception as e:
+        logging.error("Deepfake analysis failed: %s", e)
+        return {"error": f"Analysis failed: {str(e)}"}
+
+    finally:
+        # Always clean up the temp file
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
 
 # ── Intelligence Pipeline Trigger (Optional Internal) ─────────────────────────
