@@ -239,6 +239,8 @@ def verify_url(url: str) -> dict:
         is_fake, credibility, breakdown = detect_fake_news(
             title=result["title"],
             content=result["raw_content"],
+            model=_fake_news_model,
+            tokenizer=_fake_news_tokenizer,
             source=result["source"],
             verification_result=result.get("fact_check")
         )

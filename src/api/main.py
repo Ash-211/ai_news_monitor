@@ -202,6 +202,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Root endpoint (prevents 404 logs from HF Space pings) ─────────────────────
+@app.get("/")
+def read_root():
+    return {"message": "AI News API is running.", "status": "active"}
+
 # ── Health check endpoint (used by self-ping and GitHub Actions wake-up) ──────
 @app.get("/health")
 def health_check():
