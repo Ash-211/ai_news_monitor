@@ -12,7 +12,9 @@ Returns a plain dict with all results — does NOT persist to the database.
 """
 
 import re
+import os
 import logging
+import requests
 from urllib.parse import urlparse
 
 from newspaper import Article as NewsArticle, Config
@@ -166,32 +168,43 @@ def verify_url(url: str) -> dict:
         result["error"] = f"Failed to scrape the article: {e}"
         return result
 
-    # ── Step 1.5: Is it actually news? (AI Zero-Shot Check) ───────────
+    # ── Step 1.5: Is it actually news? (AI Zero-Shot Check via HuggingFace API) ─
     try:
-        global _zero_shot_model
-        if '_zero_shot_model' not in globals() or _zero_shot_model is None:
-            from transformers import pipeline
-            logger.info("Loading Zero-Shot classification model for content verification...")
-            _zero_shot_model = pipeline("zero-shot-classification", model="MoritzLaurer/mDeBERTa-v3-base-mnli-xnli")
-        
-        # Test the first 500 characters
-        test_text = f"{result['title']}. {result['raw_content'][:500]}"
-        candidate_labels = ["news report", "personal opinion blog", "product advertisement", "educational material"]
-        
-        zs_result = _zero_shot_model(test_text, candidate_labels)
-        top_label = zs_result['labels'][0]
-        top_score = zs_result['scores'][0]
-        
-        logger.info(f"Zero-shot classification: {top_label} ({top_score:.2f})")
-        
-        # If the AI strongly believes this is a blog, ad, or course (not news)
-        if top_label != "news report" and top_score > 0.50:
-            result["error"] = f"This URL was classified as a '{top_label}' rather than a journalistic news article. Please provide a standard news link."
-            return result
+        hf_token = os.getenv("HF_TOKEN", "")
+        if hf_token:
+            # Test the first 500 characters
+            test_text = f"{result['title']}. {result['raw_content'][:500]}"
+            candidate_labels = ["news report", "personal opinion blog", "product advertisement", "educational material"]
+
+            api_url = "https://api-inference.huggingface.co/models/MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
+            headers = {"Authorization": f"Bearer {hf_token}"}
+            payload = {
+                "inputs": test_text,
+                "parameters": {"candidate_labels": candidate_labels}
+            }
+
+            hf_response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+
+            if hf_response.status_code == 200:
+                zs_result = hf_response.json()
+                top_label = zs_result['labels'][0]
+                top_score = zs_result['scores'][0]
+
+                logger.info(f"Zero-shot classification: {top_label} ({top_score:.2f})")
+
+                # If the AI strongly believes this is a blog, ad, or course (not news)
+                if top_label != "news report" and top_score > 0.50:
+                    result["error"] = f"This URL was classified as a '{top_label}' rather than a journalistic news article. Please provide a standard news link."
+                    return result
+            else:
+                logger.warning(f"HuggingFace API returned status {hf_response.status_code}: {hf_response.text[:200]}")
+        else:
+            logger.info("HF_TOKEN not set, skipping zero-shot content check.")
 
     except Exception as e:
         logger.error(f"Zero-shot check failed: {e}")
-        # Non-fatal, just continue with the pipeline if the model fails to load
+        # Non-fatal, just continue with the pipeline if the API call fails
+
 
     # ── Step 2: Clean text ────────────────────────────────────────────
     try:
