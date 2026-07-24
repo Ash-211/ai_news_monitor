@@ -187,15 +187,18 @@ def verify_url(url: str) -> dict:
 
             if hf_response.status_code == 200:
                 zs_result = hf_response.json()
-                top_label = zs_result['labels'][0]
-                top_score = zs_result['scores'][0]
+                if isinstance(zs_result, list) and len(zs_result) > 0:
+                    zs_result = zs_result[0]
+                if isinstance(zs_result, dict) and 'labels' in zs_result and 'scores' in zs_result:
+                    top_label = zs_result['labels'][0]
+                    top_score = zs_result['scores'][0]
 
-                logger.info(f"Zero-shot classification: {top_label} ({top_score:.2f})")
+                    logger.info(f"Zero-shot classification: {top_label} ({top_score:.2f})")
 
-                # If the AI strongly believes this is a blog, ad, or course (not news)
-                if top_label != "news report" and top_score > 0.50:
-                    result["error"] = f"This URL was classified as a '{top_label}' rather than a journalistic news article. Please provide a standard news link."
-                    return result
+                    # If the AI strongly believes this is a blog, ad, or course (not news)
+                    if top_label != "news report" and top_score > 0.50:
+                        result["error"] = f"This URL was classified as a '{top_label}' rather than a journalistic news article. Please provide a standard news link."
+                        return result
             else:
                 logger.warning(f"HuggingFace API returned status {hf_response.status_code}: {hf_response.text[:200]}")
         else:
