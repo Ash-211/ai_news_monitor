@@ -488,55 +488,62 @@ def generate_explanation(score: float, title: str = "", content: str = "",
     if risk_factors: prompt += f"Risk factors: {', '.join(risk_factors)}.\n"
     prompt += "\nWrite a detailed, dynamic explanation of exactly what the AI models think about this article's credibility based on the given indicators. Your explanation must be between 5 and 7 sentences long and professionally explain the reasoning."
 
-    try:
-        import requests as hf_requests
-        hf_token = os.getenv("HF_TOKEN", "")
-        if hf_token:
-            model_id = "Qwen/Qwen2.5-0.5B-Instruct"
-            api_url = f"https://router.huggingface.co/hf-inference/models/{model_id}"
-            headers = {
-                "Authorization": f"Bearer {hf_token}",
-                "Content-Type": "application/json"
-            }
+    import requests as hf_requests
+    hf_token = os.getenv("HF_TOKEN", "")
 
-            formatted_prompt = f"<|im_start|>system\nYou are a professional AI news verification assistant. You provide detailed, analytical reasoning for credibility scores.<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+    if hf_token:
+        # Candidate models supported by HF serverless inference router
+        candidate_models = [
+            "Qwen/Qwen2.5-72B-Instruct",
+            "mistralai/Mistral-7B-Instruct-v0.3",
+            "HuggingFaceH4/zephyr-7b-beta",
+            "meta-llama/Llama-3.2-3B-Instruct"
+        ]
 
-            payload = {
-                "inputs": formatted_prompt,
-                "parameters": {
-                    "max_new_tokens": 250,
-                    "temperature": 0.75,
-                    "return_full_text": False
+        for model_id in candidate_models:
+            try:
+                # First try OpenAI compatible endpoint
+                api_url = "https://router.huggingface.co/hf-inference/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {hf_token}",
+                    "Content-Type": "application/json"
                 }
-            }
+                messages = [
+                    {"role": "system", "content": "You are a professional AI news verification assistant. You provide detailed, analytical reasoning for credibility scores."},
+                    {"role": "user", "content": prompt}
+                ]
+                payload = {
+                    "model": model_id,
+                    "messages": messages,
+                    "max_tokens": 250,
+                    "temperature": 0.75
+                }
+                hf_response = hf_requests.post(api_url, headers=headers, json=payload, timeout=10)
+                if hf_response.status_code == 200:
+                    response_data = hf_response.json()
+                    explanation = response_data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+                    if len(explanation) >= 15:
+                        return explanation
+            except Exception as e:
+                print(f"XAI Generation Error for model {model_id}: {e}")
 
-            hf_response = hf_requests.post(api_url, headers=headers, json=payload, timeout=30)
-
-            if hf_response.status_code == 200:
-                response_data = hf_response.json()
-                if isinstance(response_data, list) and len(response_data) > 0:
-                    explanation = response_data[0].get("generated_text", "").strip()
-                elif isinstance(response_data, dict):
-                    explanation = response_data.get("generated_text", "").strip()
-                else:
-                    explanation = ""
-
-                if len(explanation) >= 10:
-                    return explanation
-                else:
-                    raise ValueError("Empty explanation generated.")
-            else:
-                raise ValueError(f"HuggingFace API returned status {hf_response.status_code}: {hf_response.text[:100]}")
+    # Rich dynamic fallback explanation if AI model APIs are unavailable
+    lines = []
+    lines.append(f"This article received a credibility score of {int(score * 100)}%.")
+    if trust_factors:
+        lines.append(f"Key credibility indicators include: {'; '.join(trust_factors)}.")
+    if risk_factors:
+        lines.append(f"Potential concerns identified: {'; '.join(risk_factors)}.")
+    if not trust_factors and not risk_factors:
+        if score >= 0.70:
+            lines.append("The content exhibits typical formatting and stylistic traits consistent with reliable news reporting.")
+        elif score <= 0.40:
+            lines.append("The article exhibits patterns commonly associated with sensationalized or unverified claims.")
         else:
-            raise ValueError("HF_TOKEN not set")
-    except Exception as e:
-        print(f"XAI Generation Error: {e}")
-        # Fallback to a basic template if the API fails
-        if score >= 0.60:
-            return f"This article scores {int(score*100)}% credibility, indicating it is likely authentic."
-        elif score >= 0.40:
-            return f"This article scores {int(score*100)}% credibility, placing it in an uncertain zone."
-        return f"This article scores {int(score*100)}% credibility, indicating potential misinformation."
+            lines.append("The content shows a neutral mix of indicators requiring further cross-source verification.")
+    
+    lines.append("This assessment combines automated linguistic pattern analysis with real-time news source verification.")
+    return " ".join(lines)
 
 
 def detect_fake_news(title: str, content: str, model=None, tokenizer=None, source: str = None, verification_result: dict = None) -> tuple:
