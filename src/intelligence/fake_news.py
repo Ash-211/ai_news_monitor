@@ -351,8 +351,20 @@ def load_fake_news_detector():
     """
     Loads the trained fake news detector (DistilBERT) from disk.
     """
-    print("Skipping local DistilBERT load (using HuggingFace API instead).")
-    return None, None
+    if not os.path.exists(MODEL_PATH):
+        print(f"Fake news model not found at {MODEL_PATH}")
+        return None, None
+    print(f"Loading local DistilBERT from {MODEL_PATH}...")
+    try:
+        tokenizer = DistilBertTokenizer.from_pretrained(MODEL_PATH)
+        model = DistilBertForSequenceClassification.from_pretrained(MODEL_PATH)
+        device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        model.to(device)
+        model.eval()
+        return model, tokenizer
+    except Exception as e:
+        print(f"Error loading local model: {e}")
+        return None, None
 
 
 def generate_explanation(score: float, title: str = "", content: str = "",
@@ -563,26 +575,39 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
     # Fallback default score if API fails
     real_probability = 0.5 
 
-    hf_token = os.getenv("HF_TOKEN", "")
-    headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
-    api_urls = [
-        "https://router.huggingface.co/hf-inference/models/vinitsingare/distilbert_fake_news",
-        "https://api-inference.huggingface.co/models/vinitsingare/distilbert_fake_news"
-    ]
+    if model and tokenizer:
+        import torch
+        device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        
+        inputs = tokenizer(content, return_tensors="pt", truncation=True, padding=True, max_length=512)
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        
+        with torch.no_grad():
+            outputs = model(**inputs)
+            probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
+            # Index 0 is REAL, Index 1 is FAKE
+            real_probability = probabilities[0][0].item()
+    else:
+        hf_token = os.getenv("HF_TOKEN", "")
+        headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
+        api_urls = [
+            "https://router.huggingface.co/hf-inference/models/vinitsingare/distilbert_fake_news",
+            "https://api-inference.huggingface.co/models/vinitsingare/distilbert_fake_news"
+        ]
 
-    for api_url in api_urls:
-        try:
-            response = hf_requests.post(api_url, headers=headers, json={"inputs": content}, timeout=15)
-            if response.status_code == 200:
-                results = response.json()
-                if isinstance(results, list) and len(results) > 0 and isinstance(results[0], list):
-                    for item in results[0]:
-                        if item.get("label") in ["LABEL_0", "0", "REAL", "Real"]:
-                            real_probability = float(item["score"])
-                            break
-                    break
-        except Exception as e:
-            print(f"HuggingFace Fake News API ({api_url}) failed: {e}")
+        for api_url in api_urls:
+            try:
+                response = hf_requests.post(api_url, headers=headers, json={"inputs": content}, timeout=15)
+                if response.status_code == 200:
+                    results = response.json()
+                    if isinstance(results, list) and len(results) > 0 and isinstance(results[0], list):
+                        for item in results[0]:
+                            if item.get("label") in ["LABEL_0", "0", "REAL", "Real"]:
+                                real_probability = float(item["score"])
+                                break
+                        break
+            except Exception as e:
+                print(f"HuggingFace Fake News API ({api_url}) failed: {e}")
 
     # External Verification Boost/Penalty (NewsAPI + Google Fact Check)
     final_score = real_probability
