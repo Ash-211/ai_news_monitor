@@ -500,38 +500,45 @@ def generate_explanation(score: float, title: str = "", content: str = "",
     prompt += "\nWrite a detailed, dynamic explanation of exactly what the AI models think about this article's credibility based on the given indicators. Your explanation must be between 5 and 7 sentences long and professionally explain the reasoning."
 
     try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        import torch
-        model_id = "Qwen/Qwen2.5-0.5B-Instruct"
-        
-        # We load it lazily to save startup time if XAI isn't hit
-        global _xai_model, _xai_tokenizer
-        if '_xai_model' not in globals():
-            _xai_tokenizer = AutoTokenizer.from_pretrained(model_id)
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            dtype = torch.float16 if device == "cuda" else torch.float32
-            _xai_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=dtype).to(device)
-            _xai_model.eval()
+        import requests as hf_requests
+        hf_token = os.getenv("HF_TOKEN", "")
+        if hf_token:
+            model_id = "Qwen/Qwen2.5-0.5B-Instruct"
+            api_url = f"https://api-inference.huggingface.co/models/{model_id}/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {hf_token}",
+                "Content-Type": "application/json"
+            }
 
-        messages = [
-            {"role": "system", "content": "You are a professional AI news verification assistant. You provide detailed, analytical reasoning for credibility scores."},
-            {"role": "user", "content": prompt}
-        ]
-        text = _xai_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        inputs = _xai_tokenizer([text], return_tensors="pt").to(_xai_model.device)
-        
-        with torch.no_grad():
-            outputs = _xai_model.generate(**inputs, max_new_tokens=250, temperature=0.75, do_sample=True)
-        explanation = _xai_tokenizer.decode(outputs[0][len(inputs.input_ids[0]):], skip_special_tokens=True).strip()
-        
-        # Fallback if generated string is empty
-        if len(explanation) < 10:
-            raise ValueError("Empty explanation generated.")
-            
-        return explanation
+            messages = [
+                {"role": "system", "content": "You are a professional AI news verification assistant. You provide detailed, analytical reasoning for credibility scores."},
+                {"role": "user", "content": prompt}
+            ]
+
+            payload = {
+                "model": model_id,
+                "messages": messages,
+                "max_tokens": 250,
+                "temperature": 0.75
+            }
+
+            hf_response = hf_requests.post(api_url, headers=headers, json=payload, timeout=30)
+
+            if hf_response.status_code == 200:
+                response_data = hf_response.json()
+                explanation = response_data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+                if len(explanation) >= 10:
+                    return explanation
+                else:
+                    raise ValueError("Empty explanation generated.")
+            else:
+                raise ValueError(f"HuggingFace API returned status {hf_response.status_code}")
+        else:
+            raise ValueError("HF_TOKEN not set")
     except Exception as e:
         print(f"XAI Generation Error: {e}")
-        # Fallback to a basic template if the LLM fails or is downloading
+        # Fallback to a basic template if the API fails
         if score >= 0.60:
             return f"This article scores {int(score*100)}% credibility, indicating it is likely authentic."
         elif score >= 0.40:

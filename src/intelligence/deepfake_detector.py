@@ -27,45 +27,25 @@ Pipeline:
 import os
 import logging
 import tempfile
+import requests as hf_requests
+import io
+import base64
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 # ── Global model cache (lazy-loaded once, reused across requests) ─────────
-_deepfake_model = None
-_deepfake_processor = None
 _face_cascade = None
 
 # Model identifier on HuggingFace
 DEEPFAKE_MODEL_ID = "prithivMLmods/deepfake-detector-model-v1"
 
+# HuggingFace Inference API URL
+HF_API_URL = f"https://api-inference.huggingface.co/models/{DEEPFAKE_MODEL_ID}"
+
 # Ensemble parameters (calibrated via grid search on 30 test videos)
 ENSEMBLE_WEIGHT = 0.5      # Weight for face_mean vs (1 - score_diff)
 ENSEMBLE_THRESHOLD = 0.56  # Scores above this are classified as Fake
-
-
-def _ensure_model_loaded():
-    """
-    Lazy-loads the deepfake detection model and processor into memory.
-    Called automatically on first inference request; subsequent calls
-    return the cached instances instantly.
-    """
-    global _deepfake_model, _deepfake_processor
-
-    if _deepfake_model is not None and _deepfake_processor is not None:
-        return _deepfake_model, _deepfake_processor
-
-    from transformers import AutoImageProcessor, AutoModelForImageClassification
-    import torch
-
-    logger.info("Loading deepfake detection model: %s ...", DEEPFAKE_MODEL_ID)
-
-    _deepfake_processor = AutoImageProcessor.from_pretrained(DEEPFAKE_MODEL_ID)
-    _deepfake_model = AutoModelForImageClassification.from_pretrained(DEEPFAKE_MODEL_ID)
-    _deepfake_model.eval()  # Set to evaluation mode (no dropout, etc.)
-
-    logger.info("Deepfake detection model loaded successfully.")
-    return _deepfake_model, _deepfake_processor
 
 
 def _ensure_face_cascade():
@@ -107,22 +87,42 @@ def _crop_face(img_bgr, face_rect, margin_ratio=0.3):
 
 def _classify_bgr(img_bgr):
     """
-    Run the SigLIP model on a BGR image.
+    Run the SigLIP model on a BGR image via HuggingFace Inference API.
     Returns fake_prob (float, 0-1).
     """
-    import torch
     import cv2
-    from PIL import Image
 
-    model, processor = _ensure_model_loaded()
-    rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    pil = Image.fromarray(rgb)
-    inputs = processor(images=pil, return_tensors="pt")
-    with torch.no_grad():
-        out = model(**inputs)
-        probs = torch.nn.functional.softmax(out.logits, dim=-1)[0]
-    # id2label: {0: 'Fake', 1: 'Real'}
-    return float(probs[0])
+    hf_token = os.getenv("HF_TOKEN", "")
+    headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
+
+    # Encode the BGR image as JPEG bytes for the API
+    success, img_encoded = cv2.imencode('.jpg', img_bgr)
+    if not success:
+        logger.warning("Failed to encode image for API call")
+        return 0.5  # Neutral score on failure
+
+    img_bytes = img_encoded.tobytes()
+
+    try:
+        response = hf_requests.post(HF_API_URL, headers=headers, data=img_bytes, timeout=30)
+
+        if response.status_code == 200:
+            results = response.json()
+            # Results format: [{"label": "Fake", "score": 0.8}, {"label": "Real", "score": 0.2}]
+            for item in results:
+                if item.get("label", "").lower() == "fake":
+                    return float(item["score"])
+            # If "Fake" label not found, return 1 - Real score
+            for item in results:
+                if item.get("label", "").lower() == "real":
+                    return 1.0 - float(item["score"])
+            return 0.5  # Fallback
+        else:
+            logger.warning("HuggingFace deepfake API returned status %d: %s", response.status_code, response.text[:200])
+            return 0.5  # Neutral score on API error
+    except Exception as e:
+        logger.error("HuggingFace deepfake API call failed: %s", e)
+        return 0.5  # Neutral score on failure
 
 
 def _compute_ensemble_score(full_fake, face_fake):
@@ -185,8 +185,6 @@ def detect_deepfake_image(image_path: str) -> dict:
     """
     import cv2
     from PIL import Image as PILImage
-
-    model, processor = _ensure_model_loaded()
 
     # Load the image as BGR for OpenCV processing
     img_bgr = cv2.imread(image_path)
@@ -321,12 +319,7 @@ def detect_deepfake_video(video_path: str, sample_rate: int = 10) -> dict:
             - explanation (str): XAI-style human-readable reasoning.
     """
     import cv2
-    import torch
     import numpy as np
-    from PIL import Image
-
-    model, processor = _ensure_model_loaded()
-    id2label = model.config.id2label
 
     # Open the video file
     cap = cv2.VideoCapture(video_path)
