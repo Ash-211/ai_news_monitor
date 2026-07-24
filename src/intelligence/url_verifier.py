@@ -183,7 +183,7 @@ def verify_url(url: str) -> dict:
                 "parameters": {"candidate_labels": candidate_labels}
             }
 
-            hf_response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+            hf_response = requests.post(api_url, headers=headers, json=payload, timeout=3)
 
             if hf_response.status_code == 200:
                 zs_result = hf_response.json()

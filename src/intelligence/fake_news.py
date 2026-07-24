@@ -530,7 +530,7 @@ def generate_explanation(score: float, title: str = "", content: str = "",
                     "max_tokens": 250,
                     "temperature": 0.75
                 }
-                hf_response = hf_requests.post(api_url, headers=headers, json=payload, timeout=10)
+                hf_response = hf_requests.post(api_url, headers=headers, json=payload, timeout=3)
                 if hf_response.status_code == 200:
                     response_data = hf_response.json()
                     explanation = response_data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
