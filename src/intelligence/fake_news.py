@@ -551,10 +551,8 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
     Checks if a single article is fake news using DistilBERT.
     Returns: (is_fake, final_score, breakdown_dict)
     """
-    if model is None or tokenizer is None:
-        model, tokenizer = load_fake_news_detector()
-        if model is None:
-            return False, 0.5, {}
+    import os
+    import requests as hf_requests
 
     title = title or ""
     content = content or ""
@@ -562,19 +560,28 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
     if not content or len(content.strip()) < 10:
         content = title
 
-    device = next(model.parameters()).device
-    
-    inputs = tokenizer(content, return_tensors="pt", truncation=True, padding=True, max_length=128)
-    inputs = {k: v.to(device) for k, v in inputs.items()}
-    
-    with torch.no_grad():
-        outputs = model(**inputs)
-        logits = outputs.logits
-        probabilities = torch.nn.functional.softmax(logits, dim=-1)[0]
-    
-    # Probability of class 0 (Authentic/Real)
-    real_probability = float(probabilities[0].item())
-    
+    # Fallback default score if API fails
+    real_probability = 0.5 
+
+    hf_token = os.getenv("HF_TOKEN", "")
+    headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
+    api_url = "https://api-inference.huggingface.co/models/Ash-211/Fake_news_model"
+
+    try:
+        response = hf_requests.post(api_url, headers=headers, json={"inputs": content}, timeout=15)
+        if response.status_code == 200:
+            # Format is usually: [[{"label": "LABEL_1", "score": 0.9}, {"label": "LABEL_0", "score": 0.1}]]
+            results = response.json()
+            if isinstance(results, list) and len(results) > 0 and isinstance(results[0], list):
+                # We need the probability of class 0 (Authentic/Real)
+                for item in results[0]:
+                    # Depending on how the model was saved, it might be 'LABEL_0' or '0'
+                    if item.get("label") == "LABEL_0" or item.get("label") == "0":
+                        real_probability = float(item["score"])
+                        break
+    except Exception as e:
+        print(f"HuggingFace Fake News API failed: {e}")
+
     # External Verification Boost/Penalty (NewsAPI + Google Fact Check)
     final_score = real_probability
     
@@ -582,10 +589,8 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
         v_score = verification_result.get("verification_score", 0.5)
         
         if v_score >= 0.7:
-            # Well-corroborated by external sources → bonus
             final_score += 0.15
         elif v_score <= 0.3:
-            # Flagged or uncorroborated → penalty
             final_score -= 0.15
             
     final_score = max(0.01, min(1.0, final_score))
@@ -606,48 +611,21 @@ def detect_batch(titles: list, contents: list, model=None, tokenizer=None, sourc
     Runs fake news detection on a batch of articles.
     Returns list of tuples: [(is_fake, final_score, breakdown_dict), ...]
     """
-    if model is None or tokenizer is None:
-        model, tokenizer = load_fake_news_detector()
-        if model is None:
-            return [(False, 0.5, {})] * len(contents)
-
     results = []
-    valid_indices = []
-    valid_texts = []
-
     for i, content in enumerate(contents):
         title = titles[i] if titles and i < len(titles) else ""
-        content = content or ""
+        source = sources[i] if sources and i < len(sources) else None
         
-        if len(content.strip()) < 10:
-            content = title
-            
-        if len(content.strip()) >= 10:
-            valid_texts.append(content)
-            valid_indices.append(i)
+        # We just reuse the single detect function which now uses the API
+        is_fake, final_score, breakdown = detect_fake_news(
+            content=content, 
+            title=title, 
+            source=source, 
+            verification_result=None
+        )
+        results.append((is_fake, final_score, breakdown))
 
-    if valid_texts:
-        device = next(model.parameters()).device
-        
-        # Process in batches to avoid OOM if many valid texts
-        batch_size = 16
-        all_probs = []
-        for i in range(0, len(valid_texts), batch_size):
-            batch_texts = valid_texts[i:i+batch_size]
-            inputs = tokenizer(batch_texts, return_tensors="pt", truncation=True, padding=True, max_length=128)
-            inputs = {k: v.to(device) for k, v in inputs.items()}
-            
-            with torch.no_grad():
-                outputs = model(**inputs)
-                logits = outputs.logits
-                probabilities = torch.nn.functional.softmax(logits, dim=-1)
-                all_probs.extend(probabilities.cpu().numpy())
-                
-        result_map = {}
-        for j, idx in enumerate(valid_indices):
-            content_score = float(all_probs[j][0]) # Real probability
-            source = sources[idx] if sources and idx < len(sources) else None
-            title = titles[idx] if titles and idx < len(titles) else ""
+    return results
             
             final_score = max(0.01, min(1.0, content_score))
             is_fake = bool(final_score < FAKE_THRESHOLD)
