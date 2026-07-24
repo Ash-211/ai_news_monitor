@@ -565,22 +565,24 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
 
     hf_token = os.getenv("HF_TOKEN", "")
     headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
-    api_url = "https://router.huggingface.co/hf-inference/models/vinitsingare/distilbert_fake_news"
+    api_urls = [
+        "https://api-inference.huggingface.co/models/vinitsingare/distilbert_fake_news",
+        "https://router.huggingface.co/hf-inference/models/vinitsingare/distilbert_fake_news"
+    ]
 
-    try:
-        response = hf_requests.post(api_url, headers=headers, json={"inputs": content}, timeout=15)
-        if response.status_code == 200:
-            # Format is usually: [[{"label": "LABEL_1", "score": 0.9}, {"label": "LABEL_0", "score": 0.1}]]
-            results = response.json()
-            if isinstance(results, list) and len(results) > 0 and isinstance(results[0], list):
-                # We need the probability of class 0 (Authentic/Real)
-                for item in results[0]:
-                    # Depending on how the model was saved, it might be 'LABEL_0' or '0'
-                    if item.get("label") == "LABEL_0" or item.get("label") == "0":
-                        real_probability = float(item["score"])
-                        break
-    except Exception as e:
-        print(f"HuggingFace Fake News API failed: {e}")
+    for api_url in api_urls:
+        try:
+            response = hf_requests.post(api_url, headers=headers, json={"inputs": content}, timeout=15)
+            if response.status_code == 200:
+                results = response.json()
+                if isinstance(results, list) and len(results) > 0 and isinstance(results[0], list):
+                    for item in results[0]:
+                        if item.get("label") in ["LABEL_0", "0", "REAL", "Real"]:
+                            real_probability = float(item["score"])
+                            break
+                    break
+        except Exception as e:
+            print(f"HuggingFace Fake News API ({api_url}) failed: {e}")
 
     # External Verification Boost/Penalty (NewsAPI + Google Fact Check)
     final_score = real_probability
