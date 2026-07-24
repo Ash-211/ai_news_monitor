@@ -351,19 +351,8 @@ def load_fake_news_detector():
     """
     Loads the trained fake news detector (DistilBERT) from disk.
     """
-    if not os.path.exists(MODEL_PATH):
-        print("No saved fake news model found. Please train it first.")
-        print("Run: python -m src.intelligence.fake_news")
-        return None, None
-
-    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    print(f"Loading DistilBERT from {MODEL_PATH} onto {device}...")
-    tokenizer = DistilBertTokenizer.from_pretrained(MODEL_PATH)
-    model = DistilBertForSequenceClassification.from_pretrained(MODEL_PATH)
-    model.to(device)
-    model.eval()
-    print("Fake news detector loaded successfully.")
-    return model, tokenizer
+    print("Skipping local DistilBERT load (using HuggingFace API instead).")
+    return None, None
 
 
 def generate_explanation(score: float, title: str = "", content: str = "",
