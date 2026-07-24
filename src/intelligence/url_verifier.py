@@ -231,21 +231,17 @@ def verify_url(url: str) -> dict:
         logger.warning("Classification failed: %s", e)
         result["category"] = "N/A"
 
-    # ── Step 4: Fake news detection (DistilBERT) ──────────────────────
+    # ── Step 4: Fake news detection (via API) ─────────────────────────
     try:
-        if _fake_news_model is not None and _fake_news_tokenizer is not None:
-            is_fake, credibility, breakdown = detect_fake_news(
-                title=result["title"],
-                content=result["raw_content"],
-                model=_fake_news_model,
-                tokenizer=_fake_news_tokenizer,
-                source=result["source"],
-            )
-            result["is_fake"] = is_fake
-            result["credibility_score"] = round(credibility, 4)
-            result["explanation"] = breakdown.get("explanation_text", "")
-        else:
-            result["explanation"] = "Fake news model not loaded."
+        is_fake, credibility, breakdown = detect_fake_news(
+            title=result["title"],
+            content=result["raw_content"],
+            source=result["source"],
+            verification_result=result.get("fact_check")
+        )
+        result["is_fake"] = is_fake
+        result["credibility_score"] = round(credibility, 4)
+        result["explanation"] = breakdown.get("explanation_text", "")
     except Exception as e:
         logger.warning("Fake news detection failed: %s", e)
         result["explanation"] = f"Detection error: {e}"
