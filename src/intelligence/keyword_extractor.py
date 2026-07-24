@@ -46,7 +46,7 @@ def extract_keywords(text: str, top_n: int = 10) -> list:
         scores = np.asarray(tfidf_matrix.sum(axis=0)).flatten()
         top_indices = scores.argsort()[-top_n:][::-1]
 
-        keywords = [feature_names[i] for i in top_indices]
+        keywords = [str(feature_names[i]) for i in top_indices]
         return keywords
 
     except Exception as e:
