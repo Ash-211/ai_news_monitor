@@ -1,0 +1,19 @@
+from transformers import pipeline
+
+classifier = pipeline("zero-shot-classification", model="cross-encoder/nli-distilroberta-base")
+candidate_labels = ["journalistic news article", "personal blog post", "product advertisement", "educational course"]
+
+texts = [
+    ("Random Ass Thoughts", "I was thinking about trimming my beard today, but then I realized it's too much work. Life is crazy right now."),
+    ("New Swiffer Lemon Duster", "Introducing the new Swiffer Lemon Duster. Get the fresh scent of clean with no spray required. Buy now at your local store."),
+    ("Parakram Gate 2026 Batch", "Join the Parakram GATE 2026 Batch for Computer Science. Enroll today to secure your future!"),
+    ("Global Markets Fall Amid Tech Selloff", "Global stock markets tumbled on Thursday following a massive tech selloff on Wall Street. Investors remain cautious."),
+    ("Local Firefighters Rescue Cat", "A local firefighter team in downtown Seattle successfully rescued a cat stuck in a 40-foot oak tree this morning. The cat, named Whiskers, was returned safely to its owner.")
+]
+
+for title, text in texts:
+    full_text = f"{title}. {text}"
+    result = classifier(full_text, candidate_labels)
+    print(f"\n--- {title} ---")
+    for i in range(len(result['labels'])):
+        print(f"{result['labels'][i]}: {result['scores'][i]:.4f}")
