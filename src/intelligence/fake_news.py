@@ -626,25 +626,6 @@ def detect_batch(titles: list, contents: list, model=None, tokenizer=None, sourc
         results.append((is_fake, final_score, breakdown))
 
     return results
-            
-            final_score = max(0.01, min(1.0, content_score))
-            is_fake = bool(final_score < FAKE_THRESHOLD)
-            
-            content = contents[idx] if contents and idx < len(contents) else ""
-            explanation = generate_explanation(final_score, title=title, content=content, source=source)
-            breakdown = {"explanation_text": explanation}
-            
-            result_map[idx] = (is_fake, final_score, breakdown)
-
-        for i in range(len(contents)):
-            if i in result_map:
-                results.append(result_map[i])
-            else:
-                results.append((True, 0.1, {"explanation_text": "Article content too short for analysis."}))
-    else:
-        results = [(True, 0.1, {"explanation_text": "Article content too short for analysis."})] * len(contents)
-
-    return results
 
 
 if __name__ == "__main__":
