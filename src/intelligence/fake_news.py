@@ -565,7 +565,7 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
 
     hf_token = os.getenv("HF_TOKEN", "")
     headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
-    api_url = "https://router.huggingface.co/hf-inference/models/Ash-211/Fake_news_model"
+    api_url = "https://router.huggingface.co/hf-inference/models/vinitsingare/distilbert_fake_news"
 
     try:
         response = hf_requests.post(api_url, headers=headers, json={"inputs": content}, timeout=15)
