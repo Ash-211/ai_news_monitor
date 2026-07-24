@@ -566,8 +566,9 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
     hf_token = os.getenv("HF_TOKEN", "")
     headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
     api_urls = [
-        "https://api-inference.huggingface.co/models/vinitsingare/distilbert_fake_news",
-        "https://router.huggingface.co/hf-inference/models/vinitsingare/distilbert_fake_news"
+        "https://router.huggingface.co/hf-inference/models/vinitsingare/distilbert_fake_news",
+        "https://router.huggingface.co/hf-inference/models/mrm8488/bert-tiny-finetuned-fake-news-detection",
+        "https://api-inference.huggingface.co/models/vinitsingare/distilbert_fake_news"
     ]
 
     for api_url in api_urls:
