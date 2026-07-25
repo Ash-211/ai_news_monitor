@@ -1,11 +1,12 @@
 """
-AI News Worker — Hugging Face Space (Gradio SDK + ZeroGPU)
+AI News Worker — Hugging Face Space (Gradio SDK)
+Pure CPU Version - Unlimited Free Usage
 """
 
-import spaces
 import gradio as gr
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import json
 
 MODEL_ID = "vinitsingare/distilbert_fake_news"
 
@@ -13,13 +14,9 @@ print(f"Loading model '{MODEL_ID}' from Hugging Face Hub...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 model = AutoModelForSequenceClassification.from_pretrained(MODEL_ID)
 model.eval()
-print("Model loaded successfully!")
+print("Model loaded successfully on CPU!")
 
-
-@spaces.GPU
 def predict(text: str) -> str:
-    import json
-
     text = (text or "").strip()
     if not text or len(text) < 10:
         return json.dumps({
@@ -28,11 +25,7 @@ def predict(text: str) -> str:
             "label": "UNKNOWN"
         })
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
-    inputs = {k: v.to(device) for k, v in inputs.items()}
 
     with torch.no_grad():
         outputs = model(**inputs)
@@ -48,13 +41,12 @@ def predict(text: str) -> str:
         "label": label
     })
 
-
 demo = gr.Interface(
     fn=predict,
     inputs=gr.Textbox(label="Article Text", lines=5, placeholder="Paste article text here..."),
     outputs=gr.Textbox(label="Prediction (JSON)"),
-    title="AI News Worker - DistilBERT Fake News Detector",
-    description="Paste any news article text and this model will predict whether it is REAL or FAKE.",
+    title="AI News Worker - Pure CPU",
+    description="Unlimited free DistilBERT fake news detection.",
     api_name="predict"
 )
 
