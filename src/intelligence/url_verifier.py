@@ -169,7 +169,13 @@ def verify_url(url: str) -> dict:
         result["error"] = f"Failed to scrape the article: {e}"
         return result
 
-    # ── Step 1.5: Is it actually news? (AI Zero-Shot Check via HuggingFace API) ─
+    # ── Step 1.5: Is it actually news? (Heuristic & AI Checks) ────────
+    # First, a basic heuristic check: News articles must have some meat on the bones.
+    word_count = len(result["raw_content"].split())
+    if word_count < 150:
+        result["error"] = f"This URL does not appear to contain a full news article (the extracted text is too short, only {word_count} words). Please provide a standard news link."
+        return result
+
     try:
         hf_token = os.getenv("HF_TOKEN", "")
         if hf_token:
@@ -210,10 +216,7 @@ def verify_url(url: str) -> dict:
 
     except Exception as e:
         logger.error(f"Zero-shot check failed: {e}")
-        # Non-fatal backup heuristic: If API fails, at least ensure it has enough text to be a news article
-        if len(result["raw_content"].split()) < 150:
-            result["error"] = "This URL does not appear to contain a full news article (the extracted text is too short). Please provide a standard news link."
-            return result
+        # Non-fatal, proceed to the DistilBERT model if the API completely crashes
 
 
     # ── Step 2: Clean text ────────────────────────────────────────────
