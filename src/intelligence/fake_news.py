@@ -588,27 +588,33 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
             # Index 0 is REAL, Index 1 is FAKE
             real_probability = probabilities[0][0].item()
     else:
-        # ── Call our dedicated HF Space worker ────────────────────────────
+        # ── Call our dedicated HF Space worker (Gradio API) ───────────────
         # The free HF Inference API does NOT support custom fine-tuned models.
-        # Instead, we call our own HF Space that loads the model directly.
+        # Instead, we call our own Gradio-based HF Space that loads the model.
+        # Gradio exposes APIs at /api/predict with {"data": [input]} format.
         worker_url = os.getenv(
             "HF_WORKER_URL",
             "https://vinitsingare-ai-news-worker.hf.space"
         )
-        predict_url = f"{worker_url.rstrip('/')}/predict"
+        predict_url = f"{worker_url.rstrip('/')}/api/predict"
 
         try:
+            import json as _json
             import requests as hf_requests
             response = hf_requests.post(
                 predict_url,
-                json={"text": content},
+                json={"data": [content]},
                 timeout=30
             )
             if response.status_code == 200:
-                result = response.json()
-                real_probability = float(result.get("real_probability", 0.5))
-                print(f"HF Worker prediction: {result.get('label')} "
-                      f"(real={real_probability:.4f})")
+                gradio_result = response.json()
+                # Gradio returns {"data": ["json_string"]}
+                raw_output = gradio_result.get("data", [None])[0]
+                if raw_output:
+                    parsed = _json.loads(raw_output) if isinstance(raw_output, str) else raw_output
+                    real_probability = float(parsed.get("real_probability", 0.5))
+                    print(f"HF Worker prediction: {parsed.get('label')} "
+                          f"(real={real_probability:.4f})")
             else:
                 print(f"HF Worker returned status {response.status_code}: "
                       f"{response.text[:200]}")

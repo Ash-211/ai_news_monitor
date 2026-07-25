@@ -1,16 +1,14 @@
 """
-AI News Worker — Hugging Face Space
+AI News Worker — Hugging Face Space (Gradio SDK)
 Loads the fine-tuned DistilBERT fake news detection model and serves
-predictions via a simple FastAPI endpoint.
+predictions via Gradio's built-in API.
 
 Render backend sends article text here → this Space runs it through
 the neural network → returns the credibility score back to Render.
 """
 
-import os
 import torch
-from fastapi import FastAPI
-from pydantic import BaseModel
+import gradio as gr
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 # ── Load Model at Startup ─────────────────────────────────────────────────────
@@ -25,35 +23,21 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 print(f"Model loaded successfully on {device}!")
 
-# ── FastAPI App ───────────────────────────────────────────────────────────────
-app = FastAPI(title="AI News Worker", description="DistilBERT Fake News Detection API")
 
-
-class PredictRequest(BaseModel):
-    text: str
-
-
-class PredictResponse(BaseModel):
-    real_probability: float
-    fake_probability: float
-    label: str
-
-
-@app.get("/")
-def health():
-    """Health check endpoint so HF Spaces doesn't show 404."""
-    return {"status": "running", "model": MODEL_ID}
-
-
-@app.post("/predict", response_model=PredictResponse)
-def predict(request: PredictRequest):
+def predict(text: str) -> str:
     """
     Accepts article text, runs it through the DistilBERT model,
-    and returns the real/fake probabilities.
+    and returns a JSON string with real/fake probabilities.
     """
-    text = request.text.strip()
+    import json
+
+    text = (text or "").strip()
     if not text or len(text) < 10:
-        return PredictResponse(real_probability=0.5, fake_probability=0.5, label="UNKNOWN")
+        return json.dumps({
+            "real_probability": 0.5,
+            "fake_probability": 0.5,
+            "label": "UNKNOWN"
+        })
 
     # Tokenize and run inference
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
@@ -63,13 +47,31 @@ def predict(request: PredictRequest):
         outputs = model(**inputs)
         probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
         # Index 0 = REAL, Index 1 = FAKE
-        real_prob = float(probabilities[0][0].item())
-        fake_prob = float(probabilities[0][1].item())
+        real_prob = round(float(probabilities[0][0].item()), 4)
+        fake_prob = round(float(probabilities[0][1].item()), 4)
 
     label = "REAL" if real_prob >= 0.5 else "FAKE"
 
-    return PredictResponse(
-        real_probability=round(real_prob, 4),
-        fake_probability=round(fake_prob, 4),
-        label=label
-    )
+    return json.dumps({
+        "real_probability": real_prob,
+        "fake_probability": fake_prob,
+        "label": label
+    })
+
+
+# ── Gradio Interface ──────────────────────────────────────────────────────────
+demo = gr.Interface(
+    fn=predict,
+    inputs=gr.Textbox(label="Article Text", lines=5, placeholder="Paste article text here..."),
+    outputs=gr.Textbox(label="Prediction (JSON)"),
+    title="🔍 AI News Worker — DistilBERT Fake News Detector",
+    description="Paste any news article text and this model will predict whether it is REAL or FAKE.",
+    examples=[
+        ["The United Nations released its annual report on climate change impacts across developing nations."],
+        ["BREAKING: Scientists discover that drinking bleach cures all diseases instantly!"],
+    ],
+    api_name="predict"
+)
+
+if __name__ == "__main__":
+    demo.launch()

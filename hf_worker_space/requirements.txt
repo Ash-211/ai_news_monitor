@@ -1,5 +1,3 @@
-fastapi
-uvicorn
+gradio
 torch
 transformers
-pydantic
