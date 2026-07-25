@@ -306,9 +306,18 @@ async def _verify_url(url: str) -> str:
         return "⚠️ Please provide a valid URL.\n_Example: verify https://example.com/article_"
 
     try:
-        import asyncio
-        from src.intelligence.url_verifier import verify_url
-        data = await asyncio.to_thread(verify_url, url)
+        import httpx
+        
+        # We delegate the heavy AI lifting to our 16GB Hugging Face backend!
+        hf_api_url = "https://vinitsingare-ai-news-api.hf.space/api/verify"
+        
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.post(hf_api_url, json={"url": url})
+            if resp.status_code == 200:
+                data = resp.json()
+            else:
+                logger.error(f"HF API returned {resp.status_code}: {resp.text}")
+                return f"❌ Verification failed: Hugging Face backend returned status {resp.status_code}"
     except Exception as e:
         logger.exception("Verify URL error: %s", e)
         return f"❌ Verification failed: {str(e)}"
