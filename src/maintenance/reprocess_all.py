@@ -22,7 +22,7 @@ def reprocess_all():
 
     print("\n--- Reprocessing ALL Articles with New XAI Explanations ---")
     
-    all_articles = session.query(Article).limit(5).all()
+    all_articles = session.query(Article).all()
     print(f"Found {len(all_articles)} total articles.")
     if not all_articles:
         return

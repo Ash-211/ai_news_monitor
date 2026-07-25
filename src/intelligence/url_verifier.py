@@ -175,7 +175,10 @@ def verify_url(url: str) -> dict:
         if hf_token:
             # Test the first 500 characters
             test_text = f"{result['title']}. {result['raw_content'][:500]}"
-            candidate_labels = ["news report", "personal opinion blog", "product advertisement", "educational material"]
+            candidate_labels = [
+                "news report", "personal opinion blog", "product advertisement", 
+                "educational material", "corporate landing page", "software platform"
+            ]
 
             api_url = "https://router.huggingface.co/hf-inference/models/MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
             headers = {"Authorization": f"Bearer {hf_token}"}
@@ -184,7 +187,7 @@ def verify_url(url: str) -> dict:
                 "parameters": {"candidate_labels": candidate_labels}
             }
 
-            hf_response = requests.post(api_url, headers=headers, json=payload, timeout=3)
+            hf_response = requests.post(api_url, headers=headers, json=payload, timeout=10)
 
             if hf_response.status_code == 200:
                 zs_result = hf_response.json()
@@ -196,8 +199,8 @@ def verify_url(url: str) -> dict:
 
                     logger.info(f"Zero-shot classification: {top_label} ({top_score:.2f})")
 
-                    # If the AI strongly believes this is a blog, ad, or course (not news)
-                    if top_label != "news report" and top_score > 0.50:
+                    # If the AI strongly believes this is a blog, ad, landing page, etc (not news)
+                    if top_label != "news report" and top_score > 0.40:
                         result["error"] = f"This URL was classified as a '{top_label}' rather than a journalistic news article. Please provide a standard news link."
                         return result
             else:
@@ -207,7 +210,10 @@ def verify_url(url: str) -> dict:
 
     except Exception as e:
         logger.error(f"Zero-shot check failed: {e}")
-        # Non-fatal, just continue with the pipeline if the API call fails
+        # Non-fatal backup heuristic: If API fails, at least ensure it has enough text to be a news article
+        if len(result["raw_content"].split()) < 150:
+            result["error"] = "This URL does not appear to contain a full news article (the extracted text is too short). Please provide a standard news link."
+            return result
 
 
     # ── Step 2: Clean text ────────────────────────────────────────────
