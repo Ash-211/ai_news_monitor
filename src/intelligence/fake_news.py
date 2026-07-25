@@ -588,38 +588,42 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
             # Index 0 is REAL, Index 1 is FAKE
             real_probability = probabilities[0][0].item()
     else:
-        # ── Call our dedicated HF Space worker (Gradio API) ───────────────
-        # The free HF Inference API does NOT support custom fine-tuned models.
-        # Instead, we call our own Gradio-based HF Space that loads the model.
-        # Gradio exposes APIs at /api/predict with {"data": [input]} format.
-        worker_url = os.getenv(
-            "HF_WORKER_URL",
-            "https://vinitsingare-ai-news-worker.hf.space"
-        )
-        predict_url = f"{worker_url.rstrip('/')}/api/predict"
+        # ── Call our dedicated HF Space worker (Gradio v5 API) ────────────
+        worker_url = os.getenv("HF_WORKER_URL", "https://vinitsingare-ai-news-worker.hf.space")
+        call_url = f"{worker_url.rstrip('/')}/gradio_api/call/predict"
 
         try:
             import json as _json
             import requests as hf_requests
-            response = hf_requests.post(
-                predict_url,
-                json={"data": [content]},
-                timeout=30
-            )
+            
+            # Step 1: Request an event_id
+            response = hf_requests.post(call_url, json={"data": [content]}, timeout=15)
             if response.status_code == 200:
-                gradio_result = response.json()
-                # Gradio returns {"data": ["json_string"]}
-                raw_output = gradio_result.get("data", [None])[0]
-                if raw_output:
-                    parsed = _json.loads(raw_output) if isinstance(raw_output, str) else raw_output
-                    real_probability = float(parsed.get("real_probability", 0.5))
-                    print(f"HF Worker prediction: {parsed.get('label')} "
-                          f"(real={real_probability:.4f})")
+                event_id = response.json().get("event_id")
+                
+                # Step 2: Listen to the Server-Sent Events stream for completion
+                stream_url = f"{call_url}/{event_id}"
+                stream_response = hf_requests.get(stream_url, stream=True, timeout=30)
+                
+                for line in stream_response.iter_lines():
+                    if line:
+                        decoded = line.decode('utf-8')
+                        if decoded.startswith('data: '):
+                            data_str = decoded[6:]
+                            try:
+                                data_json = _json.loads(data_str)
+                                if isinstance(data_json, list) and len(data_json) > 0:
+                                    raw_output = data_json[0]
+                                    parsed = _json.loads(raw_output) if isinstance(raw_output, str) else raw_output
+                                    real_probability = float(parsed.get("real_probability", 0.5))
+                                    print(f"HF Worker prediction: {parsed.get('label')} (real={real_probability:.4f})")
+                                    break
+                            except Exception:
+                                pass
             else:
-                print(f"HF Worker returned status {response.status_code}: "
-                      f"{response.text[:200]}")
+                print(f"HF Worker returned status {response.status_code}: {response.text[:200]}")
         except Exception as e:
-            print(f"HF Worker ({predict_url}) failed: {e}")
+            print(f"HF Worker failed: {e}")
 
     # External Verification Boost/Penalty (NewsAPI + Google Fact Check)
     final_score = real_probability
