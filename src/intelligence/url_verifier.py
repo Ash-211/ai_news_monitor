@@ -55,6 +55,7 @@ def _ensure_models_loaded():
 
     # Fake news detector (DistilBERT)
     try:
+        from src.intelligence.fake_news import load_fake_news_detector
         _fake_news_model, _fake_news_tokenizer = load_fake_news_detector()
     except Exception as e:
         logger.warning("Could not load fake news detector: %s", e)
@@ -234,7 +235,6 @@ def verify_url(url: str) -> dict:
         logger.warning("Classification failed: %s", e)
         result["category"] = "N/A"
 
-    # ── Step 4: Fake news detection (via API) ─────────────────────────
     try:
         is_fake, credibility, breakdown = detect_fake_news(
             title=result["title"],

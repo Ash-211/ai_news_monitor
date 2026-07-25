@@ -351,20 +351,21 @@ def load_fake_news_detector():
     """
     Loads the trained fake news detector (DistilBERT) from disk or Hugging Face Hub.
     """
-    model_id_or_path = MODEL_PATH
+    model_name_or_path = MODEL_PATH
     if not os.path.exists(MODEL_PATH):
-        print(f"Fake news model not found at {MODEL_PATH}. Falling back to HF Hub: vinitsingare/distilbert_fake_news")
-        model_id_or_path = "vinitsingare/distilbert_fake_news"
+        print(f"Fake news model not found at {MODEL_PATH}. Falling back to Hugging Face Hub...")
+        model_name_or_path = "vinitsingare/distilbert_fake_news"
     
+    print(f"Loading DistilBERT from {model_name_or_path}...")
     try:
-        tokenizer = DistilBertTokenizer.from_pretrained(model_id_or_path)
-        model = DistilBertForSequenceClassification.from_pretrained(model_id_or_path)
+        tokenizer = DistilBertTokenizer.from_pretrained(model_name_or_path)
+        model = DistilBertForSequenceClassification.from_pretrained(model_name_or_path)
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         model.to(device)
         model.eval()
         return model, tokenizer
     except Exception as e:
-        print(f"Error loading model {model_id_or_path}: {e}")
+        print(f"Error loading model: {e}")
         return None, None
 
 
@@ -589,7 +590,42 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
             # Index 0 is REAL, Index 1 is FAKE
             real_probability = probabilities[0][0].item()
     else:
-        print("Warning: Local fake news model not loaded. Defaulting to 50% credibility.")
+        # ── Call our dedicated HF Space worker (Gradio v5 API) ────────────
+        worker_url = os.getenv("HF_WORKER_URL", "https://vinitsingare-ai-news-worker.hf.space")
+        call_url = f"{worker_url.rstrip('/')}/gradio_api/call/predict"
+
+        try:
+            import json as _json
+            import requests as hf_requests
+            
+            # Step 1: Request an event_id
+            response = hf_requests.post(call_url, json={"data": [content]}, timeout=15)
+            if response.status_code == 200:
+                event_id = response.json().get("event_id")
+                
+                # Step 2: Listen to the Server-Sent Events stream for completion
+                stream_url = f"{call_url}/{event_id}"
+                stream_response = hf_requests.get(stream_url, stream=True, timeout=30)
+                
+                for line in stream_response.iter_lines():
+                    if line:
+                        decoded = line.decode('utf-8')
+                        if decoded.startswith('data: '):
+                            data_str = decoded[6:]
+                            try:
+                                data_json = _json.loads(data_str)
+                                if isinstance(data_json, list) and len(data_json) > 0:
+                                    raw_output = data_json[0]
+                                    parsed = _json.loads(raw_output) if isinstance(raw_output, str) else raw_output
+                                    real_probability = float(parsed.get("real_probability", 0.5))
+                                    print(f"HF Worker prediction: {parsed.get('label')} (real={real_probability:.4f})")
+                                    break
+                            except Exception:
+                                pass
+            else:
+                print(f"HF Worker returned status {response.status_code}: {response.text[:200]}")
+        except Exception as e:
+            print(f"HF Worker failed: {e}")
 
     # External Verification Boost/Penalty (NewsAPI + Google Fact Check)
     final_score = real_probability
@@ -629,8 +665,6 @@ def detect_batch(titles: list, contents: list, model=None, tokenizer=None, sourc
         is_fake, final_score, breakdown = detect_fake_news(
             content=content, 
             title=title, 
-            model=model,
-            tokenizer=tokenizer,
             source=source, 
             verification_result=None
         )
