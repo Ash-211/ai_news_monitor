@@ -588,26 +588,32 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
             # Index 0 is REAL, Index 1 is FAKE
             real_probability = probabilities[0][0].item()
     else:
-        hf_token = os.getenv("HF_TOKEN", "")
-        headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
-        api_urls = [
-            "https://router.huggingface.co/hf-inference/models/vinitsingare/distilbert_fake_news",
-            "https://api-inference.huggingface.co/models/vinitsingare/distilbert_fake_news"
-        ]
+        # ── Call our dedicated HF Space worker ────────────────────────────
+        # The free HF Inference API does NOT support custom fine-tuned models.
+        # Instead, we call our own HF Space that loads the model directly.
+        worker_url = os.getenv(
+            "HF_WORKER_URL",
+            "https://vinitsingare-ai-news-worker.hf.space"
+        )
+        predict_url = f"{worker_url.rstrip('/')}/predict"
 
-        for api_url in api_urls:
-            try:
-                response = hf_requests.post(api_url, headers=headers, json={"inputs": content}, timeout=15)
-                if response.status_code == 200:
-                    results = response.json()
-                    if isinstance(results, list) and len(results) > 0 and isinstance(results[0], list):
-                        for item in results[0]:
-                            if item.get("label") in ["LABEL_0", "0", "REAL", "Real"]:
-                                real_probability = float(item["score"])
-                                break
-                        break
-            except Exception as e:
-                print(f"HuggingFace Fake News API ({api_url}) failed: {e}")
+        try:
+            import requests as hf_requests
+            response = hf_requests.post(
+                predict_url,
+                json={"text": content},
+                timeout=30
+            )
+            if response.status_code == 200:
+                result = response.json()
+                real_probability = float(result.get("real_probability", 0.5))
+                print(f"HF Worker prediction: {result.get('label')} "
+                      f"(real={real_probability:.4f})")
+            else:
+                print(f"HF Worker returned status {response.status_code}: "
+                      f"{response.text[:200]}")
+        except Exception as e:
+            print(f"HF Worker ({predict_url}) failed: {e}")
 
     # External Verification Boost/Penalty (NewsAPI + Google Fact Check)
     final_score = real_probability
