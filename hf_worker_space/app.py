@@ -1,28 +1,23 @@
 """
-AI News Worker — Hugging Face Space (Gradio SDK)
-Loads the fine-tuned DistilBERT fake news detection model and serves
-predictions via Gradio's built-in API.
+AI News Worker — Hugging Face Space (Gradio SDK + ZeroGPU)
 """
 
+import spaces
 import gradio as gr
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-# ── Load Model at Startup ─────────────────────────────────────────────────────
 MODEL_ID = "vinitsingare/distilbert_fake_news"
 
 print(f"Loading model '{MODEL_ID}' from Hugging Face Hub...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 model = AutoModelForSequenceClassification.from_pretrained(MODEL_ID)
 model.eval()
-print("Model loaded successfully on CPU!")
+print("Model loaded successfully!")
 
 
+@spaces.GPU
 def predict(text: str) -> str:
-    """
-    Accepts article text, runs it through the DistilBERT model,
-    and returns a JSON string with real/fake probabilities.
-    """
     import json
 
     text = (text or "").strip()
@@ -33,7 +28,11 @@ def predict(text: str) -> str:
             "label": "UNKNOWN"
         })
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
 
     with torch.no_grad():
         outputs = model(**inputs)
