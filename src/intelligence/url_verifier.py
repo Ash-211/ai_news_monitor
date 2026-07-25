@@ -53,6 +53,14 @@ def _ensure_models_loaded():
         logger.warning("Could not load classifier: %s", e)
         _classifier_model = None
 
+    # Fake news detector (DistilBERT)
+    try:
+        _fake_news_model, _fake_news_tokenizer = load_fake_news_detector()
+    except Exception as e:
+        logger.warning("Could not load fake news detector: %s", e)
+        _fake_news_model = None
+        _fake_news_tokenizer = None
+
     _models_loaded = True
     logger.info("AI models loaded.")
 
@@ -231,6 +239,8 @@ def verify_url(url: str) -> dict:
         is_fake, credibility, breakdown = detect_fake_news(
             title=result["title"],
             content=result["raw_content"],
+            model=_fake_news_model,
+            tokenizer=_fake_news_tokenizer,
             source=result["source"],
             verification_result=result.get("fact_check")
         )
