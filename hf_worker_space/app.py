@@ -7,6 +7,11 @@ Render backend sends article text here → this Space runs it through
 the neural network → returns the credibility score back to Render.
 """
 
+try:
+    import spaces  # Must be imported before torch on HF Spaces
+except ImportError:
+    pass
+
 import torch
 import gradio as gr
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
