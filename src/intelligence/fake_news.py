@@ -665,6 +665,8 @@ def detect_batch(titles: list, contents: list, model=None, tokenizer=None, sourc
         is_fake, final_score, breakdown = detect_fake_news(
             content=content, 
             title=title, 
+            model=model,
+            tokenizer=tokenizer,
             source=source, 
             verification_result=None
         )
