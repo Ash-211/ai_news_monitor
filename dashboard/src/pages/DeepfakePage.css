@@ -540,3 +540,142 @@
     padding: 0.5rem;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Article Context Input
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.df-context-section {
+  margin-top: 1rem;
+  padding: 0 0.5rem;
+}
+
+.df-context-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary, #94a3b8);
+  margin-bottom: 0.5rem;
+}
+
+.df-optional-tag {
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--text-muted, #64748b);
+}
+
+.df-context-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary, #e2e8f0);
+  font-size: 0.9rem;
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+
+.df-context-textarea:focus {
+  border-color: rgba(168, 85, 247, 0.5);
+  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.1);
+}
+
+.df-context-textarea::placeholder {
+  color: var(--text-muted, #64748b);
+  font-size: 0.85rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EXIF Metadata Display
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.df-metadata {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.df-metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.df-meta-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.df-meta-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.df-meta-key {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.df-meta-val {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--text-primary, #e2e8f0);
+  margin-top: 2px;
+  word-break: break-word;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Context Verification Result
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.df-context-result {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: border-color 0.3s;
+}
+
+.df-context-ok {
+  background: rgba(34, 197, 94, 0.04);
+  border-color: rgba(34, 197, 94, 0.15);
+}
+
+.df-context-warning {
+  background: rgba(239, 68, 68, 0.06);
+  border-color: rgba(239, 68, 68, 0.25);
+  animation: pulseWarning 2s infinite;
+}
+
+@keyframes pulseWarning {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%      { box-shadow: 0 0 12px 2px rgba(239, 68, 68, 0.15); }
+}
+
+.df-context-explanation {
+  font-size: 0.92rem;
+  line-height: 1.65;
+  color: var(--text-secondary, #94a3b8);
+  margin-top: 0.5rem;
+  white-space: pre-wrap;
+}
