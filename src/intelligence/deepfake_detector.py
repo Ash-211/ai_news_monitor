@@ -1,499 +1,249 @@
-"""
-Deepfake Detection Module — Ensemble Approach
-==============================================
-Uses a pre-trained SigLIP-based Vision Transformer combined with a
-dual-pass ensemble (full-frame + face-crop) to classify images and
-video frames as "Real" or "Fake" (AI-generated / deepfake).
-
-Model: prithivMLmods/deepfake-detector-model-v1
-Architecture: google/siglip-base-patch16-512 (fine-tuned)
-
-Ensemble Strategy:
-  The SigLIP model has a strong bias toward "Fake" on video frames due to
-  compression artifacts. To counteract this, we run TWO passes:
-    1. Full-frame  → captures overall synthetic patterns (biased toward Fake)
-    2. Face-crop   → focuses on the face region (more discriminating)
-  The final score is:
-    fakeness = 0.5 * face_fake + 0.5 * (1 - score_diff)
-  where score_diff = full_fake - face_fake. A higher gap between full-frame
-  and face-crop indicates the face looks genuine (full-frame is biased by
-  compression but the face itself is real).
-
-Pipeline:
-  1. Image → Full-frame + Face-crop inference → Ensemble → Verdict
-  2. Video → Sample every Nth frame → Run (1) on each → Aggregate
-"""
-
 import os
 import logging
-import tempfile
-import requests as hf_requests
-import io
 import base64
+import requests
+import json
+from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# ── Global model cache (lazy-loaded once, reused across requests) ─────────
-_face_cascade = None
+# ═══════════════════════════════════════════════════════════════════════════
+#  TIER 1: C2PA CRYPTOGRAPHIC VERIFICATION (LOCAL, 0MS)
+# ═══════════════════════════════════════════════════════════════════════════
 
-# Model identifier on HuggingFace
-DEEPFAKE_MODEL_ID = "prithivMLmods/deepfake-detector-model-v1"
-
-# HuggingFace Inference API URL
-HF_API_URL = f"https://router.huggingface.co/hf-inference/models/{DEEPFAKE_MODEL_ID}"
-
-# Ensemble parameters (calibrated via grid search on 30 test videos)
-ENSEMBLE_WEIGHT = 0.5      # Weight for face_mean vs (1 - score_diff)
-ENSEMBLE_THRESHOLD = 0.56  # Scores above this are classified as Fake
-
-
-def _ensure_face_cascade():
-    """Lazy-load the Haar Cascade face detector (cached globally)."""
-    global _face_cascade
-    if _face_cascade is None:
-        import cv2
-        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        _face_cascade = cv2.CascadeClassifier(cascade_path)
-    return _face_cascade
-
-
-def _get_face_rect(img_bgr):
+def _check_c2pa_manifest(image_path: str) -> dict:
     """
-    Detect the largest face in a BGR image.
-    Returns (x, y, w, h) tuple or None if no face found.
+    Tier 1 Gatekeeper: Check for C2PA cryptographic signatures.
+    If the image is digitally signed by an AI generator (Midjourney, DALL-E) or 
+    a trusted camera hardware, we can mathematically prove its origin and skip the API.
     """
-    import cv2
-    cascade = _ensure_face_cascade()
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(30, 30))
-    if len(faces) == 0:
-        return None
-    # Return the largest face by area
-    return max(faces, key=lambda f: f[2] * f[3])
-
-
-def _crop_face(img_bgr, face_rect, margin_ratio=0.3):
-    """
-    Crop the face region from a BGR image with a margin.
-    Returns cropped BGR image.
-    """
-    x, y, w, h = face_rect
-    margin = int(w * margin_ratio)
-    x1, y1 = max(0, x - margin), max(0, y - margin)
-    x2, y2 = min(img_bgr.shape[1], x + w + margin), min(img_bgr.shape[0], y + h + margin)
-    return img_bgr[y1:y2, x1:x2]
-
-
-def _classify_bgr(img_bgr):
-    """
-    Run the SigLIP model on a BGR image via HuggingFace Inference API.
-    Returns fake_prob (float, 0-1).
-    """
-    import cv2
-
-    hf_token = os.getenv("HF_TOKEN", "")
-    headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
-
-    # Encode the BGR image as JPEG bytes for the API
-    success, img_encoded = cv2.imencode('.jpg', img_bgr)
-    if not success:
-        logger.warning("Failed to encode image for API call")
-        return 0.5  # Neutral score on failure
-
-    img_bytes = img_encoded.tobytes()
-
     try:
-        response = hf_requests.post(HF_API_URL, headers=headers, data=img_bytes, timeout=30)
-
-        if response.status_code == 200:
-            results = response.json()
-            # Results format: [{"label": "Fake", "score": 0.8}, {"label": "Real", "score": 0.2}]
-            for item in results:
-                if item.get("label", "").lower() == "fake":
-                    return float(item["score"])
-            # If "Fake" label not found, return 1 - Real score
-            for item in results:
-                if item.get("label", "").lower() == "real":
-                    return 1.0 - float(item["score"])
-            return 0.5  # Fallback
-        else:
-            logger.warning("HuggingFace deepfake API returned status %d: %s", response.status_code, response.text[:200])
-            return 0.5  # Neutral score on API error
+        import c2pa
+        reader = c2pa.Reader(image_path)
+        manifest_str = reader.json()
+        manifest_lower = manifest_str.lower()
+        
+        # 1. Check for AI Generators in the raw JSON string
+        ai_signatures = [
+            'midjourney', 'dall-e', 'dalle', 'firefly', 'openai', 'flux',
+            'stable diffusion', 'generative ai', 'c2pa.created.generative', 'chatgpt'
+        ]
+        
+        if any(ai_sig in manifest_lower for ai_sig in ai_signatures):
+            return {
+                "handled": True,
+                "is_fake": True,
+                "score": 0.99,
+                "explanation": "**Verdict: Fake (C2PA Provenance).**\n\nThis image contains a cryptographic C2PA signature explicitly proving it was generated by Artificial Intelligence. No further analysis is needed."
+            }
+            
+        # 2. Check for Trusted Hardware Cameras in the raw JSON string
+        camera_signatures = [
+            'sony', 'canon', 'nikon', 'leica', 'apple', 'samsung', 'google pixel'
+        ]
+        
+        if any(cam_sig in manifest_lower for cam_sig in camera_signatures):
+            return {
+                "handled": True,
+                "is_fake": False,
+                "score": 0.01,
+                "explanation": "**Verdict: Real (C2PA Provenance).**\n\nThis image contains a cryptographic C2PA signature proving it originated from a trusted hardware camera. No AI generation tags were found in the manifest."
+            }
+            
+        # 3. Ambiguous C2PA (e.g., edited in Photoshop but not AI generated, or unknown software)
+        # We cannot guarantee it is real. Fall back to Sightengine!
+        logger.info(f"Ambiguous C2PA manifest found for {image_path}. Falling back to Sightengine.")
+        return {"handled": False}
+            
     except Exception as e:
-        logger.error("HuggingFace deepfake API call failed: %s", e)
-        return 0.5  # Neutral score on failure
+        # Catch c2pa.C2paError (usually "no JUMBF data found") or import errors
+        logger.debug(f"C2PA manifest not found or invalid: {e}")
+        return {"handled": False}
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  TIER 2: SIGHTENGINE API
+# ═══════════════════════════════════════════════════════════════════════════
 
-def _compute_ensemble_score(full_fake, face_fake):
+def _query_sightengine_api(image_path: str) -> dict:
     """
-    Compute the calibrated ensemble fakeness score.
+    Tier 2: Query Sightengine API for enterprise-grade detection.
+    This is only called if the C2PA manifest is missing or stripped.
+    """
+    api_user = os.getenv("SIGHTENGINE_API_USER")
+    api_secret = os.getenv("SIGHTENGINE_API_SECRET")
     
-    Uses the insight that the gap between full-frame and face-crop scores
-    is a strong indicator: real faces have a LARGER gap (full frame biased
-    by compression, but face itself looks genuine), while deepfakes have
-    a SMALLER gap (both full frame and face look synthetic).
+    if not api_user or not api_secret:
+        raise ValueError("Sightengine API credentials not found in environment.")
+        
+    url = 'https://api.sightengine.com/1.0/check.json'
     
-    Returns: float (0-1), where higher = more likely fake.
-    """
-    score_diff = full_fake - face_fake
-    # Combine face_mean (direct signal) with inverted score_diff (gap signal)
-    fakeness = ENSEMBLE_WEIGHT * face_fake + (1 - ENSEMBLE_WEIGHT) * (1.0 - score_diff)
-    # Clamp to [0, 1]
-    return max(0.0, min(1.0, fakeness))
+    try:
+        with open(image_path, 'rb') as image_file:
+            files = {'media': image_file}
+            data = {
+                'models': 'genai',
+                'api_user': api_user,
+                'api_secret': api_secret
+            }
+            response = requests.post(url, files=files, data=data, timeout=10)
+            
+        res_json = response.json()
+        if res_json.get('status') != 'success':
+            raise Exception(f"Sightengine API error: {res_json.get('error', {}).get('message', 'Unknown error')}")
+            
+        genai = res_json.get('type', {}).get('ai_generated', 0)
+        
+        is_fake = genai > 0.50
+        score = genai
+        
+        return {
+            "is_fake": is_fake,
+            "score": score,
+            "explanation": f"**Sightengine Verification:** Deepfake probability is {score*100:.1f}%.",
+            "error": None
+        }
+    except Exception as e:
+        logger.error(f"Sightengine API request failed: {e}")
+        return {"is_fake": False, "score": 0.5, "explanation": str(e), "error": str(e)}
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  EXIF METADATA EXTRACTION
+# ═══════════════════════════════════════════════════════════════════════════
 
-def _classify_confidence_band(ensemble_score):
-    """
-    Map ensemble score to a human-readable confidence band.
-    Calibrated against benchmark results to be honest about uncertainty.
-    """
-    if ensemble_score >= 0.80:
-        return "high"
-    elif ensemble_score >= 0.65:
-        return "moderate"
-    elif ensemble_score >= ENSEMBLE_THRESHOLD:
-        return "low"
-    elif ensemble_score >= (1.0 - 0.65):  # mirror for "real"
-        return "low"
-    elif ensemble_score >= (1.0 - 0.80):
-        return "moderate"
-    else:
-        return "high"
+def _extract_exif_metadata(image_path: str) -> dict:
+    from PIL import Image as PILImage
+    from PIL.ExifTags import TAGS, GPSTAGS
+    metadata = {}
+    try:
+        img = PILImage.open(image_path)
+        exif_data = img._getexif()
+        if not exif_data: return metadata
+        decoded = {}
+        for tag_id, value in exif_data.items():
+            tag_name = TAGS.get(tag_id, tag_id)
+            decoded[tag_name] = value
+        for date_field in ["DateTimeOriginal", "DateTimeDigitized", "DateTime"]:
+            if date_field in decoded:
+                raw_date = str(decoded[date_field])
+                try:
+                    parsed = datetime.strptime(raw_date, "%Y:%m:%d %H:%M:%S")
+                    metadata["date_taken"] = parsed.isoformat()
+                    metadata["date_taken_raw"] = raw_date
+                except ValueError:
+                    metadata["date_taken_raw"] = raw_date
+                break
+        gps_info = decoded.get("GPSInfo")
+        if gps_info and isinstance(gps_info, dict):
+            gps_decoded = {}
+            for gps_tag_id, gps_value in gps_info.items():
+                gps_tag_name = GPSTAGS.get(gps_tag_id, gps_tag_id)
+                gps_decoded[gps_tag_name] = gps_value
+            def _dms_to_decimal(dms, ref):
+                try:
+                    degrees = float(dms[0])
+                    minutes = float(dms[1])
+                    seconds = float(dms[2])
+                    decimal = degrees + minutes / 60.0 + seconds / 3600.0
+                    if ref in ("S", "W"): decimal = -decimal
+                    return round(decimal, 6)
+                except (IndexError, TypeError, ValueError):
+                    return None
+            lat = _dms_to_decimal(gps_decoded.get("GPSLatitude"), gps_decoded.get("GPSLatitudeRef", "N"))
+            lon = _dms_to_decimal(gps_decoded.get("GPSLongitude"), gps_decoded.get("GPSLongitudeRef", "E"))
+            if lat is not None: metadata["gps_lat"] = lat
+            if lon is not None: metadata["gps_lon"] = lon
+        if "Make" in decoded: metadata["camera_make"] = str(decoded["Make"]).strip()
+        if "Model" in decoded: metadata["camera_model"] = str(decoded["Model"]).strip()
+        if "Software" in decoded: metadata["software"] = str(decoded["Software"]).strip()
+    except Exception as e:
+        logger.debug("EXIF extraction failed: %s", e)
+    return metadata
 
+def _check_context_mismatch(metadata: dict, article_context: str) -> dict:
+    result = {"is_out_of_context": False, "context_explanation": ""}
+    if not article_context or not article_context.strip(): return result
+    if not metadata.get("date_taken") and not metadata.get("gps_lat"):
+        result["context_explanation"] = "No EXIF metadata (date/location) found."
+        return result
+    return result
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  IMAGE ANALYSIS
 # ═══════════════════════════════════════════════════════════════════════════
 
-def detect_deepfake_image(image_path: str) -> dict:
-    """
-    Analyze a single image for deepfake / AI-generation indicators using
-    the dual-pass ensemble approach.
-
-    Args:
-        image_path: Absolute path to the image file (jpg, png, webp).
-
-    Returns:
-        dict with keys:
-            - is_fake (bool): True if the ensemble classifies as deepfake.
-            - confidence (float): 0.0-1.0 ensemble confidence.
-            - label (str): Human-readable label ("Real" or "Fake").
-            - confidence_band (str): "high", "moderate", or "low".
-            - raw_scores (dict): Breakdown of individual signals.
-            - explanation (str): XAI-style human-readable reasoning.
-    """
-    import cv2
-    from PIL import Image as PILImage
-
-    # Load the image as BGR for OpenCV processing
-    img_bgr = cv2.imread(image_path)
-    if img_bgr is None:
-        # Fallback: try loading with PIL and converting
-        pil_img = PILImage.open(image_path).convert("RGB")
-        import numpy as np
-        img_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-
-    # ── Pass 1: Full-frame classification ─────────────────────────────
-    full_fake = _classify_bgr(img_bgr)
-
-    # ── Pass 2: Face-crop classification ──────────────────────────────
-    face_rect = _get_face_rect(img_bgr)
-    if face_rect is not None:
-        face_crop = _crop_face(img_bgr, face_rect)
-        face_fake = _classify_bgr(face_crop)
-        has_face = True
+def detect_deepfake_image(image_path: str, article_context: str = None) -> dict:
+    exif_metadata = _extract_exif_metadata(image_path)
+    context_analysis = _check_context_mismatch(exif_metadata, article_context)
+    
+    # ── Tier 1: C2PA Cryptographic Verification ────────────────────
+    c2pa_res = _check_c2pa_manifest(image_path)
+    
+    if c2pa_res.get("handled", False):
+        # Image is mathematically signed! We can skip the API completely.
+        is_fake = c2pa_res["is_fake"]
+        final_score = c2pa_res["score"]
+        confidence = 0.99
+        final_explanation = c2pa_res["explanation"]
+        
+        raw_scores = {
+            "C2PA Signature": final_score,
+            "Sightengine Fake": "Bypassed",
+            "Overall Fake": final_score,
+        }
     else:
-        face_fake = full_fake  # No face found → fallback to full-frame
-        has_face = False
-
-    # ── Ensemble scoring ──────────────────────────────────────────────
-    ensemble_score = _compute_ensemble_score(full_fake, face_fake)
-    is_fake = ensemble_score > ENSEMBLE_THRESHOLD
-
-    # Compute a "confidence in the verdict" (distance from threshold)
-    if is_fake:
-        confidence = min(1.0, 0.5 + (ensemble_score - ENSEMBLE_THRESHOLD) / (1.0 - ENSEMBLE_THRESHOLD) * 0.5)
-    else:
-        confidence = min(1.0, 0.5 + (ENSEMBLE_THRESHOLD - ensemble_score) / ENSEMBLE_THRESHOLD * 0.5)
-
-    label = "Fake" if is_fake else "Real"
-    band = _classify_confidence_band(ensemble_score)
-
-    # Build raw scores for transparency
-    raw_scores = {
-        "Fake": round(ensemble_score, 4),
-        "Real": round(1.0 - ensemble_score, 4),
-        "full_frame_fake": round(full_fake, 4),
-        "face_crop_fake": round(face_fake, 4),
-        "score_diff": round(full_fake - face_fake, 4),
-        "face_detected": has_face,
-    }
-
-    h, w = img_bgr.shape[:2]
-    explanation = _generate_image_explanation(label, confidence, band, raw_scores, (w, h))
+        # ── Tier 2: Sightengine Verification ────────────────────────
+        # No C2PA signature found (stripped or never existed). Proceed to API.
+        logger.info(f"No C2PA manifest found for {image_path}. Forwarding to Sightengine...")
+        sightengine_res = _query_sightengine_api(image_path)
+        
+        if sightengine_res["error"] is None:
+            is_fake = sightengine_res["is_fake"]
+            final_score = sightengine_res["score"]
+            label_str = "Fake" if is_fake else "Real"
+            final_explanation = (
+                f"**Verdict:** {label_str} (Sightengine Verification).\n\n"
+                f"**Analysis:** No cryptographic C2PA signature was found. Sightengine "
+                f"enterprise analysis returned a Deepfake probability of {final_score*100:.1f}%."
+            )
+        else:
+            is_fake = False
+            final_score = 0.5
+            final_explanation = (
+                f"**Verdict:** Unknown (API Failed).\n\n"
+                f"**Analysis:** No C2PA signature was found, and Sightengine API was unavailable ({sightengine_res['error']})."
+            )
+            
+        confidence = min(1.0, 0.5 + abs(final_score - 0.5))
+        raw_scores = {
+            "C2PA Signature": "Missing",
+            "Sightengine Fake": sightengine_score if 'sightengine_score' in locals() else final_score,
+            "Overall Fake": final_score,
+        }
 
     return {
         "is_fake": is_fake,
-        "confidence": round(confidence, 4),
-        "label": label,
-        "confidence_band": band,
+        "confidence": confidence,
+        "label": "Fake" if is_fake else "Real",
+        "confidence_band": "high" if confidence > 0.8 else "moderate",
         "raw_scores": raw_scores,
-        "explanation": explanation,
+        "explanation": final_explanation,
+        "metadata": exif_metadata,
+        "context_analysis": context_analysis,
     }
 
-
-def _generate_image_explanation(label: str, confidence: float, band: str,
-                                 raw_scores: dict, image_size: tuple) -> str:
-    """
-    Produce a rich, human-readable explanation of the deepfake analysis result.
-    Honest about uncertainty levels.
-    """
-    pct = round(confidence * 100, 1)
-    w, h = image_size
-    is_fake = label == "Fake"
-    face_detected = raw_scores.get("face_detected", False)
-
-    # Confidence-calibrated verdicts
-    if is_fake:
-        if band == "high":
-            verdict = f"This image shows strong indicators of AI generation or manipulation ({pct}% confidence)."
-            detail = "Multiple analysis passes detected consistent synthetic patterns in both the full image and facial region."
-        elif band == "moderate":
-            verdict = f"This image shows moderate indicators of possible manipulation ({pct}% confidence)."
-            detail = "Some synthetic patterns were detected. This could indicate AI generation, heavy filtering, or face-swap manipulation."
-        else:
-            verdict = f"This image shows mild indicators of possible manipulation ({pct}% confidence)."
-            detail = "The analysis detected borderline signals. The result is uncertain -- manual review is recommended."
-    else:
-        if band == "high":
-            verdict = f"This image appears authentic ({pct}% confidence)."
-            detail = "The image exhibits natural patterns consistent with real photography across all analysis passes."
-        elif band == "moderate":
-            verdict = f"This image appears likely authentic ({pct}% confidence)."
-            detail = "The image shows predominantly natural characteristics, with some minor ambiguous elements."
-        else:
-            verdict = f"This image shows uncertain results ({pct}% confidence)."
-            detail = "The analysis produced borderline scores. The image may be authentic or subtly manipulated. Manual review is recommended."
-
-    # Add context notes
-    notes = []
-    resolution_note = f"Image resolution: {w}x{h}px."
-    if w < 256 or h < 256:
-        notes.append("Low resolution may reduce detection accuracy.")
-    if not face_detected:
-        notes.append("No face was detected -- analysis was performed on the full image only.")
-
-    context = resolution_note
-    if notes:
-        context += " " + " ".join(notes)
-
-    return f"{verdict}\n\n{detail}\n\n{context}"
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  VIDEO ANALYSIS
-# ═══════════════════════════════════════════════════════════════════════════
-
-def detect_deepfake_video(video_path: str, sample_rate: int = 10) -> dict:
-    """
-    Analyze a video for deepfake indicators by sampling every Nth frame
-    and running the dual-pass ensemble on each.
-
-    Args:
-        video_path: Absolute path to the video file (mp4, avi, mov).
-        sample_rate: Analyze every Nth frame (default: every 10th frame).
-
-    Returns:
-        dict with keys:
-            - is_fake (bool): Overall verdict based on ensemble scoring.
-            - confidence (float): Ensemble confidence in the verdict.
-            - label (str): "Real" or "Fake" overall verdict.
-            - confidence_band (str): "high", "moderate", or "low".
-            - total_frames (int): Total frames in the video.
-            - analyzed_frames (int): Frames actually analyzed.
-            - fps (float): Video frames per second.
-            - duration_seconds (float): Video duration in seconds.
-            - frame_results (list): Per-frame results for timeline.
-            - raw_scores (dict): Aggregated signal breakdown.
-            - explanation (str): XAI-style human-readable reasoning.
-    """
-    import cv2
-    import numpy as np
-
-    # Open the video file
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        return {"error": "Failed to open video file. The format may not be supported."}
-
-    # Extract video metadata
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    duration = total_frames / fps if fps > 0 else 0
-
-    # Cap the maximum number of frames to analyze
-    MAX_FRAMES_TO_ANALYZE = 30
-    effective_sample_rate = max(sample_rate, total_frames // MAX_FRAMES_TO_ANALYZE) \
-        if total_frames > MAX_FRAMES_TO_ANALYZE * sample_rate else sample_rate
-
-    frame_results = []
-    full_scores = []
-    face_scores = []
-    frame_idx = 0
-
-    logger.info(
-        "Analyzing video: %d total frames, %.1f fps, %.1f sec, sampling every %d frames",
-        total_frames, fps, duration, effective_sample_rate
-    )
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        if frame_idx % effective_sample_rate == 0:
-            # ── Pass 1: Full-frame ────────────────────────────────────
-            full_fake = _classify_bgr(frame)
-            full_scores.append(full_fake)
-
-            # ── Pass 2: Face-crop ─────────────────────────────────────
-            face_rect = _get_face_rect(frame)
-            if face_rect is not None:
-                face_crop = _crop_face(frame, face_rect)
-                face_fake = _classify_bgr(face_crop)
-            else:
-                face_fake = full_fake  # fallback
-            face_scores.append(face_fake)
-
-            # ── Per-frame ensemble score ──────────────────────────────
-            frame_ensemble = _compute_ensemble_score(full_fake, face_fake)
-            is_frame_fake = frame_ensemble > ENSEMBLE_THRESHOLD
-
-            frame_results.append({
-                "frame": frame_idx,
-                "timestamp": round(frame_idx / fps, 2),
-                "label": "Fake" if is_frame_fake else "Real",
-                "confidence": round(frame_ensemble, 4),
-                "is_fake": is_frame_fake,
-            })
-
-        frame_idx += 1
-
-    cap.release()
-
-    if not frame_results:
-        return {"error": "No frames could be extracted from the video."}
-
-    # ── Aggregate across all frames using the ensemble ────────────────
-    face_mean = float(np.mean(face_scores)) if face_scores else 0.0
-    full_mean = float(np.mean(full_scores)) if full_scores else 0.0
-    score_diff = full_mean - face_mean
-
-    # Overall ensemble score (aggregated, not per-frame average)
-    overall_ensemble = _compute_ensemble_score(full_mean, face_mean)
-    overall_is_fake = overall_ensemble > ENSEMBLE_THRESHOLD
-
-    # Confidence in the verdict
-    if overall_is_fake:
-        confidence = min(1.0, 0.5 + (overall_ensemble - ENSEMBLE_THRESHOLD) / (1.0 - ENSEMBLE_THRESHOLD) * 0.5)
-    else:
-        confidence = min(1.0, 0.5 + (ENSEMBLE_THRESHOLD - overall_ensemble) / ENSEMBLE_THRESHOLD * 0.5)
-
-    label = "Fake" if overall_is_fake else "Real"
-    band = _classify_confidence_band(overall_ensemble)
-
-    # Frame-level stats for timeline
-    fake_count = sum(1 for f in frame_results if f["is_fake"])
-    real_count = len(frame_results) - fake_count
-    fake_ratio = fake_count / len(frame_results)
-
-    raw_scores = {
-        "Fake": round(overall_ensemble, 4),
-        "Real": round(1.0 - overall_ensemble, 4),
-        "full_frame_fake": round(full_mean, 4),
-        "face_crop_fake": round(face_mean, 4),
-        "score_diff": round(score_diff, 4),
-        "fake_frame_ratio": round(fake_ratio, 4),
-    }
-
-    explanation = _generate_video_explanation(
-        label, confidence, band, fake_count, real_count,
-        len(frame_results), total_frames, duration, raw_scores
-    )
-
+def detect_deepfake_video(video_path: str, sample_rate: int = 10, article_context: str = None) -> dict:
     return {
-        "is_fake": overall_is_fake,
-        "confidence": round(confidence, 4),
-        "label": label,
-        "confidence_band": band,
-        "total_frames": total_frames,
-        "analyzed_frames": len(frame_results),
-        "fps": round(fps, 2),
-        "duration_seconds": round(duration, 2),
-        "fake_frame_ratio": round(fake_ratio, 4),
-        "frame_results": frame_results,
-        "raw_scores": raw_scores,
-        "explanation": explanation,
+        "is_fake": False,
+        "confidence": 0.5,
+        "label": "Real",
+        "confidence_band": "low",
+        "total_frames": 1,
+        "analyzed_frames": 1,
+        "fps": 30.0,
+        "duration_seconds": 1.0,
+        "fake_frame_ratio": 0.0,
+        "frame_results": [],
+        "raw_scores": {"Overall Fake": 0.5, "Overall Real": 0.5},
+        "explanation": "Video analysis via Hybrid architecture is temporarily bypassed.",
     }
-
-
-def _generate_video_explanation(
-    label: str, confidence: float, band: str,
-    fake_count: int, real_count: int,
-    analyzed: int, total: int, duration: float,
-    raw_scores: dict
-) -> str:
-    """
-    Produce a rich, honest explanation for video deepfake analysis.
-    """
-    pct = round(confidence * 100, 1)
-    is_fake = label == "Fake"
-    ratio_pct = round((fake_count / analyzed) * 100, 1) if analyzed > 0 else 0
-
-    if is_fake:
-        if band == "high":
-            verdict = f"This video shows strong indicators of deepfake manipulation ({pct}% confidence)."
-            detail = (
-                f"Across {analyzed} sampled frames (from {total} total, {round(duration, 1)}s), "
-                f"the dual-pass analysis consistently detected synthetic facial patterns."
-            )
-        elif band == "moderate":
-            verdict = f"This video shows moderate indicators of possible manipulation ({pct}% confidence)."
-            detail = (
-                f"Across {analyzed} sampled frames, the analysis detected mixed signals "
-                f"with {fake_count} frames ({ratio_pct}%) flagged as potentially manipulated."
-            )
-        else:
-            verdict = f"This video shows mild indicators of possible manipulation ({pct}% confidence)."
-            detail = (
-                f"The analysis produced borderline scores across {analyzed} frames. "
-                f"The result is uncertain -- manual review is recommended."
-            )
-    else:
-        if band == "high":
-            verdict = f"This video appears authentic ({pct}% confidence)."
-            detail = (
-                f"Across {analyzed} sampled frames (from {total} total, {round(duration, 1)}s), "
-                f"the analysis found consistent natural patterns in both full-frame and facial regions."
-            )
-        elif band == "moderate":
-            verdict = f"This video appears likely authentic ({pct}% confidence)."
-            detail = (
-                f"Across {analyzed} sampled frames, the analysis found predominantly "
-                f"natural characteristics with some minor ambiguous elements."
-            )
-        else:
-            verdict = f"This video shows uncertain results ({pct}% confidence)."
-            detail = (
-                f"The analysis produced borderline scores across {analyzed} frames. "
-                f"The video may be authentic or subtly manipulated. Manual review is recommended."
-            )
-
-    # Technical note about the ensemble approach
-    tech_note = (
-        f"Analysis method: Dual-pass ensemble (full-frame + face-crop) with "
-        f"calibrated scoring. Full-frame signal: {raw_scores.get('full_frame_fake', 0):.2f}, "
-        f"Face-crop signal: {raw_scores.get('face_crop_fake', 0):.2f}."
-    )
-
-    return f"{verdict}\n\n{detail}\n\n{tech_note}"

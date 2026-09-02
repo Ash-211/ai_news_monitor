@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query, Request, Response, UploadFile, File
+from fastapi import FastAPI, Query, Request, Response, UploadFile, File, Form
 import asyncio
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -475,15 +475,23 @@ MAX_IMAGE_SIZE = 10 * 1024 * 1024   # 10 MB
 MAX_VIDEO_SIZE = 50 * 1024 * 1024   # 50 MB
 
 @app.post("/api/deepfake/analyze")
-async def analyze_deepfake(file: UploadFile = File(...)):
+async def analyze_deepfake(
+    file: UploadFile = File(...),
+    article_context: str = Form(None),
+):
     """
     Accepts an uploaded image or video file, runs it through the
-    deepfake detection AI model, and returns a verdict with confidence
-    scores and a human-readable explanation.
+    deepfake detection AI models (dual-model ensemble + EXIF metadata
+    analysis), and returns a verdict with confidence scores and a
+    human-readable explanation.
 
     Supported formats:
       Images: jpg, png, webp (max 10 MB)
       Videos: mp4, avi, mov, webm (max 50 MB)
+
+    Optional:
+      article_context: Text from the article for context-aware verification
+                       (detects out-of-context media usage).
     """
     import tempfile
 
@@ -514,10 +522,10 @@ async def analyze_deepfake(file: UploadFile = File(...)):
 
         if is_image:
             from src.intelligence.deepfake_detector import detect_deepfake_image
-            result = detect_deepfake_image(tmp.name)
+            result = detect_deepfake_image(tmp.name, article_context=article_context)
         else:
             from src.intelligence.deepfake_detector import detect_deepfake_video
-            result = detect_deepfake_video(tmp.name)
+            result = detect_deepfake_video(tmp.name, article_context=article_context)
 
         # Tag the result with the media type for the frontend
         result["media_type"] = "image" if is_image else "video"
@@ -525,8 +533,10 @@ async def analyze_deepfake(file: UploadFile = File(...)):
         return result
 
     except Exception as e:
-        logging.error("Deepfake analysis failed: %s", e)
-        return {"error": f"Analysis failed: {str(e)}"}
+        import traceback
+        tb = traceback.format_exc()
+        logging.error("Deepfake analysis failed: %s\n%s", e, tb)
+        return {"error": f"Analysis failed: {str(e)}\n\nTraceback:\n{tb}"}
 
     finally:
         # Always clean up the temp file

@@ -26,7 +26,7 @@ echo.
 echo ==============================================
 echo 3. Starting API Backend (Uvicorn)...
 echo ==============================================
-start "API Backend" cmd /k "python -m uvicorn src.api.main:app --reload --port 8000"
+start "API Backend" cmd /k "python -m uvicorn src.api.main:app --port 8003"
 
 echo.
 echo ==============================================
@@ -53,7 +53,7 @@ echo ==============================================
 echo.
 echo Please wait a moment for all services to initialize.
 echo The dashboard will be available at: http://localhost:5173
-echo The API will be available at: http://localhost:8000
+echo The API will be available at: http://localhost:8003
 echo.
 echo You can safely close this orchestrator window. 
 echo Do NOT close the individual command prompt windows that opened.

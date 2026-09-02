@@ -7,7 +7,7 @@ import './DeepfakePage.css';
  * per-frame timelines (for video), and XAI explanations.
  */
 const DeepfakePage = () => {
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+  const API_BASE_URL = 'http://localhost:8003';
 
   // ── State ──────────────────────────────────────────────────────────
   const [file, setFile] = useState(null);
@@ -17,6 +17,7 @@ const DeepfakePage = () => {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [dragActive, setDragActive] = useState(false);
+  const [articleContext, setArticleContext] = useState('');
 
   const fileInputRef = useRef(null);
 
@@ -86,6 +87,9 @@ const DeepfakePage = () => {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      if (articleContext.trim()) {
+        formData.append('article_context', articleContext.trim());
+      }
 
       const res = await fetch(`${API_BASE_URL}/api/deepfake/analyze`, {
         method: 'POST',
@@ -113,6 +117,7 @@ const DeepfakePage = () => {
     setMediaType(null);
     setResult(null);
     setError(null);
+    setArticleContext('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -256,6 +261,24 @@ const DeepfakePage = () => {
               </p>
             </div>
           </div>
+
+          {/* Article Context (optional) */}
+          <div className="df-context-section">
+            <label className="df-context-label">
+              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
+              </svg>
+              Article Context <span className="df-optional-tag">(optional)</span>
+            </label>
+            <textarea
+              className="df-context-textarea"
+              placeholder="Paste the article text or headline here to detect out-of-context media usage (e.g., old photos presented as current events)..."
+              value={articleContext}
+              onChange={(e) => setArticleContext(e.target.value)}
+              rows={3}
+            />
+          </div>
+
           <div className="df-action-row">
             <button className="df-btn df-btn-secondary" onClick={handleReset}>Cancel</button>
             <button className="df-btn df-btn-primary" onClick={handleAnalyze}>
@@ -351,6 +374,72 @@ const DeepfakePage = () => {
               </div>
             )}
 
+            {/* EXIF Metadata */}
+            {result.metadata && Object.keys(result.metadata).length > 0 && (
+              <div className="df-metadata">
+                <h3 className="df-section-title">
+                  <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Media Metadata (EXIF)
+                </h3>
+                <div className="df-metadata-grid">
+                  {result.metadata.date_taken_raw && (
+                    <div className="df-meta-item">
+                      <span className="df-meta-icon">📅</span>
+                      <div>
+                        <span className="df-meta-key">Date Taken</span>
+                        <span className="df-meta-val">{result.metadata.date_taken_raw}</span>
+                      </div>
+                    </div>
+                  )}
+                  {result.metadata.gps_lat && result.metadata.gps_lon && (
+                    <div className="df-meta-item">
+                      <span className="df-meta-icon">📍</span>
+                      <div>
+                        <span className="df-meta-key">GPS Location</span>
+                        <span className="df-meta-val">{result.metadata.gps_lat}, {result.metadata.gps_lon}</span>
+                      </div>
+                    </div>
+                  )}
+                  {(result.metadata.camera_make || result.metadata.camera_model) && (
+                    <div className="df-meta-item">
+                      <span className="df-meta-icon">📷</span>
+                      <div>
+                        <span className="df-meta-key">Camera</span>
+                        <span className="df-meta-val">{result.metadata.camera_make} {result.metadata.camera_model}</span>
+                      </div>
+                    </div>
+                  )}
+                  {result.metadata.software && (
+                    <div className="df-meta-item">
+                      <span className="df-meta-icon">💻</span>
+                      <div>
+                        <span className="df-meta-key">Software</span>
+                        <span className="df-meta-val">{result.metadata.software}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Context Analysis */}
+            {result.context_analysis && result.context_analysis.context_explanation && (
+              <div className={`df-context-result ${result.context_analysis.is_out_of_context ? 'df-context-warning' : 'df-context-ok'}`}>
+                <h3 className="df-section-title">
+                  <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Context Verification
+                  {result.context_analysis.is_out_of_context && (
+                    <span className="df-badge df-badge-fake" style={{ marginLeft: '8px', fontSize: '0.75rem' }}>OUT OF CONTEXT</span>
+                  )}
+                </h3>
+                <p className="df-context-explanation">{result.context_analysis.context_explanation}</p>
+              </div>
+            )}
+
             {/* Video-specific: Frame Timeline */}
             {result.media_type === 'video' && result.frame_results && (
               <>
@@ -390,7 +479,9 @@ const DeepfakePage = () => {
                   Model Confidence Breakdown
                 </h3>
                 <div className="df-score-bars">
-                  {Object.entries(result.raw_scores).map(([label, score]) => (
+                  {Object.entries(result.raw_scores)
+                    .filter(([label]) => !['face_detected', 'fake_frame_ratio'].includes(label))
+                    .map(([label, score]) => (
                     <div key={label} className="df-score-row">
                       <span className="df-score-label">{label}</span>
                       <div className="df-score-bar-track">
