@@ -184,6 +184,153 @@ def run_intelligence_pipeline():
             print("  [SKIP] Fake news detector not trained yet. Skipping.")
             print("    Run: python -m src.intelligence.fake_news")
 
+        # ─── Step 5: Automated Deepfake Detection ────────────────────
+        print("\n[5] Running Automated Deepfake Detection on Article Images...")
+        try:
+            import os
+            import tempfile
+            import requests as img_requests
+            from src.ingestion.image_filter import (
+                check_trusted_source, check_exif_authenticity, check_ai_dimensions
+            )
+
+            pending_images = session.query(Article).filter(
+                Article.image_status == 'pending',
+                Article.image_url != None,
+            ).all()
+
+            if not pending_images:
+                print("  No pending images to analyze.")
+            else:
+                print(f"  Found {len(pending_images)} images pending deepfake analysis.")
+                api_calls_made = 0
+                filter_skipped = 0
+
+                for article in pending_images:
+                    image_url = article.image_url
+                    tmp_path = None
+
+                    try:
+                        # ── Filter 4: URL Deduplication ───────────────
+                        existing = session.query(Article).filter(
+                            Article.image_url == image_url,
+                            Article.image_status.in_(['real', 'deepfake']),
+                            Article.id != article.id,
+                        ).first()
+
+                        if existing:
+                            article.image_status = existing.image_status
+                            article.deepfake_score = existing.deepfake_score
+                            filter_skipped += 1
+                            print(f"    [Filter 4] URL dedup: reused #{existing.id} -> {image_url[:60]}")
+                            continue
+
+                        # ── Filter 5: Trusted Source Bypass ───────────
+                        verdict = check_trusted_source(article.source)
+                        if verdict:
+                            article.image_status = verdict['image_status']
+                            article.deepfake_score = verdict['deepfake_score']
+                            filter_skipped += 1
+                            print(f"    [Filter 5] {verdict['reason']}")
+                            continue
+
+                        # ── Download image for local analysis ─────────
+                        resp = img_requests.get(
+                            image_url, timeout=8, stream=True,
+                            headers={'User-Agent': 'Mozilla/5.0 (NewsMonitor/1.0)'}
+                        )
+                        if resp.status_code != 200:
+                            article.image_status = 'discarded'
+                            print(f"    [Download] Failed ({resp.status_code}): {image_url[:60]}")
+                            continue
+
+                        suffix = '.jpg'
+                        ct = resp.headers.get('Content-Type', '')
+                        if 'png' in ct: suffix = '.png'
+                        elif 'webp' in ct: suffix = '.webp'
+
+                        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                            for chunk in resp.iter_content(8192):
+                                tmp.write(chunk)
+                            tmp_path = tmp.name
+
+                        # ── Filter 6: EXIF Camera Metadata ───────────
+                        verdict = check_exif_authenticity(tmp_path)
+                        if verdict:
+                            article.image_status = verdict['image_status']
+                            article.deepfake_score = verdict['deepfake_score']
+                            filter_skipped += 1
+                            print(f"    [Filter 6] {verdict['reason']}")
+                            continue
+
+                        # ── Filter 7: AI Dimension Fingerprinting ────
+                        verdict = check_ai_dimensions(tmp_path)
+                        if verdict and verdict.get('skip_api'):
+                            article.image_status = verdict['image_status']
+                            article.deepfake_score = verdict['deepfake_score']
+                            filter_skipped += 1
+                            print(f"    [Filter 7] {verdict['reason']}")
+                            continue
+
+                        # ── C2PA + Sightengine (existing detector) ────
+                        from src.intelligence.deepfake_detector import detect_deepfake_image
+                        result = detect_deepfake_image(tmp_path, article_context=article.title)
+
+                        article.deepfake_score = result.get('raw_scores', {}).get('Overall Fake', 0.5)
+                        article.image_status = 'deepfake' if result['is_fake'] else 'real'
+                        api_calls_made += 1
+
+                        print(f"    [Detector] {article.image_status.upper()} "
+                              f"(score={article.deepfake_score:.2f}): {article.title[:50]}...")
+
+                    except Exception as img_err:
+                        print(f"    [Error] {article.title[:40]}...: {img_err}")
+                        article.image_status = 'discarded'
+                    finally:
+                        if tmp_path:
+                            try:
+                                os.remove(tmp_path)
+                            except OSError:
+                                pass
+
+                # ── Apply credibility penalty for deepfake images ─────
+                deepfake_penalty_count = 0
+                for article in pending_images:
+                    if article.image_status == 'deepfake' and article.credibility_score is not None:
+                        df_score = article.deepfake_score or 0.5
+                        if df_score >= 0.90:
+                            penalty = 0.25
+                        elif df_score >= 0.70:
+                            penalty = 0.15
+                        elif df_score >= 0.50:
+                            penalty = 0.10
+                        else:
+                            penalty = 0.0
+
+                        if penalty > 0:
+                            old_cred = article.credibility_score
+                            article.credibility_score = max(0.01, article.credibility_score - penalty)
+
+                            try:
+                                details = json.loads(article.score_details) if article.score_details else {}
+                            except Exception:
+                                details = {}
+                            details['deepfake_penalty'] = -penalty
+                            details['deepfake_score'] = df_score
+                            article.score_details = json.dumps(details)
+
+                            deepfake_penalty_count += 1
+                            print(f"    [Penalty] {old_cred:.2f} -> {article.credibility_score:.2f} "
+                                  f"(-{penalty:.2f}): {article.title[:50]}...")
+
+                print(f"\n  [5] Complete: {api_calls_made} API calls, {filter_skipped} skipped by pre-filters, "
+                      f"{deepfake_penalty_count} deepfake penalties applied.")
+
+        except Exception as step5_err:
+            print(f"  [WARN] Deepfake detection step failed: {step5_err}")
+            import traceback as tb5
+            tb5.print_exc()
+
         # ─── Commit all updates ──────────────────────────────────────
         session.commit()
         print("\n" + "=" * 60)

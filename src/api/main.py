@@ -275,6 +275,9 @@ def _serialize_article(a):
         "topic_cluster":    a.topic_cluster,
         "score_details":    details,
         "keywords": a.keywords,
+        "image_url":        getattr(a, 'image_url', None),
+        "image_status":     getattr(a, 'image_status', None),
+        "deepfake_score":   getattr(a, 'deepfake_score', None),
         "summary":  (a.clean_content[:200] + "...") if a.clean_content
                     else ((a.raw_content[:200] + "...") if a.raw_content else ""),
         "full_content": a.clean_content or a.raw_content or "Content not available for this article.",

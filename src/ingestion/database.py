@@ -28,6 +28,11 @@ class Article(Base):
     raw_content = Column(Text, nullable=True)
     clean_content = Column(Text, nullable=True)
     
+    # Layer 2: Image Provenance (Deepfake Pipeline)
+    image_url = Column(String, nullable=True)              # Hero image URL (og:image / top_image)
+    image_status = Column(String, default='pending')       # pending | real | deepfake | discarded | no_image
+    deepfake_score = Column(Float, nullable=True)          # Sightengine/C2PA deepfake probability (0.0-1.0)
+    
     # Layer 3: Pipeline Results (Intelligence)
     category = Column(String, nullable=True)           # e.g., Tech, Finance, Politics
     is_fake = Column(Boolean, nullable=True)           # Fake news flag

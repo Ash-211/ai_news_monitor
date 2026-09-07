@@ -13,5 +13,25 @@ try:
 except sqlite3.OperationalError as e:
     print(f"Column might already exist or error: {e}")
 
+# ── Stage 2 & 3: Image Provenance columns ────────────────────────────────────
+try:
+    cursor.execute("ALTER TABLE articles ADD COLUMN image_url TEXT;")
+    print("Successfully added image_url column.")
+except sqlite3.OperationalError as e:
+    print(f"image_url: {e}")
+
+try:
+    cursor.execute("ALTER TABLE articles ADD COLUMN image_status TEXT DEFAULT 'pending';")
+    print("Successfully added image_status column.")
+except sqlite3.OperationalError as e:
+    print(f"image_status: {e}")
+
+try:
+    cursor.execute("ALTER TABLE articles ADD COLUMN deepfake_score REAL;")
+    print("Successfully added deepfake_score column.")
+except sqlite3.OperationalError as e:
+    print(f"deepfake_score: {e}")
+
 conn.commit()
 conn.close()
+
