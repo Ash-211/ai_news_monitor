@@ -196,7 +196,7 @@ def run_intelligence_pipeline():
 
             pending_images = session.query(Article).filter(
                 Article.image_status == 'pending',
-                Article.image_url != None,
+                Article.image_url.isnot(None),
             ).all()
 
             if not pending_images:
@@ -235,24 +235,32 @@ def run_intelligence_pipeline():
                             continue
 
                         # ── Download image for local analysis ─────────
-                        resp = img_requests.get(
+                        with img_requests.get(
                             image_url, timeout=8, stream=True,
                             headers={'User-Agent': 'Mozilla/5.0 (NewsMonitor/1.0)'}
-                        )
-                        if resp.status_code != 200:
-                            article.image_status = 'discarded'
-                            print(f"    [Download] Failed ({resp.status_code}): {image_url[:60]}")
-                            continue
+                        ) as resp:
+                            if resp.status_code != 200:
+                                article.image_status = 'discarded'
+                                print(f"    [Download] Failed ({resp.status_code}): {image_url[:60]}")
+                                continue
 
-                        suffix = '.jpg'
-                        ct = resp.headers.get('Content-Type', '')
-                        if 'png' in ct: suffix = '.png'
-                        elif 'webp' in ct: suffix = '.webp'
+                            ct = resp.headers.get('Content-Type', '').lower()
+                            if not ct.startswith('image/'):
+                                article.image_status = 'discarded'
+                                print(f"    [Download] Non-image response ({ct or 'missing'}): {image_url[:60]}")
+                                continue
 
-                        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                            for chunk in resp.iter_content(8192):
-                                tmp.write(chunk)
-                            tmp_path = tmp.name
+                            suffix = '.jpg'
+                            if 'png' in ct:
+                                suffix = '.png'
+                            elif 'webp' in ct:
+                                suffix = '.webp'
+
+                            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                                for chunk in resp.iter_content(8192):
+                                    if chunk:
+                                        tmp.write(chunk)
+                                tmp_path = tmp.name
 
                         # ── Filter 6: EXIF Camera Metadata ───────────
                         verdict = check_exif_authenticity(tmp_path)

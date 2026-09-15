@@ -113,13 +113,19 @@ def _check_http_headers(image_url: str) -> dict | None:
 
         # Reject tiny images (likely tracking pixels, icons, or logos)
         content_length = resp.headers.get('Content-Length')
-        if content_length and int(content_length) < MIN_IMAGE_SIZE_BYTES:
-            size_kb = int(content_length) / 1024
-            return {
-                "is_novel": False,
-                "reason": f"Image too small ({size_kb:.1f} KB) — likely a logo or icon",
-                "filter_stage": "http_header",
-            }
+        if content_length:
+            try:
+                content_length_bytes = int(content_length)
+            except (TypeError, ValueError):
+                logger.debug(f"Invalid Content-Length header for {image_url}: {content_length!r}")
+            else:
+                if content_length_bytes < MIN_IMAGE_SIZE_BYTES:
+                    size_kb = content_length_bytes / 1024
+                    return {
+                        "is_novel": False,
+                        "reason": f"Image too small ({size_kb:.1f} KB) — likely a logo or icon",
+                        "filter_stage": "http_header",
+                    }
 
     except requests.RequestException as e:
         # If we can't reach the image, don't block ingestion — just log it
@@ -258,8 +264,8 @@ def check_exif_authenticity(image_path: str) -> dict | None:
         from PIL import Image as PILImage
         from PIL.ExifTags import TAGS
 
-        img = PILImage.open(image_path)
-        exif_data = img._getexif()
+        with PILImage.open(image_path) as img:
+            exif_data = img._getexif()
 
         if not exif_data:
             return None  # No EXIF — inconclusive, continue to next filter
@@ -329,8 +335,8 @@ def check_ai_dimensions(image_path: str) -> dict | None:
     """
     try:
         from PIL import Image as PILImage
-        img = PILImage.open(image_path)
-        w, h = img.size
+        with PILImage.open(image_path) as img:
+            w, h = img.size
 
         megapixels = (w * h) / 1_000_000
 
