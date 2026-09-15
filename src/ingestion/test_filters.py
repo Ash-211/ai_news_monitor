@@ -110,7 +110,7 @@ class FilterTestResults:
             icon = "  OK " if status == "PASS" else " FAIL"
             exp_str = "REJECT" if expected else "PASS"
             act_str = "REJECT" if actual else "PASS"
-            print(f"  [{icon}] {desc:40s}  expected={exp_str:6s}  got={act_str:6s}")
+            print(f"  [{icon}] expected={exp_str:6s}  got={act_str:6s}")
 
 
 def test_url_heuristics():
