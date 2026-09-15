@@ -7,6 +7,7 @@ from newsapi import NewsApiClient
 from sqlalchemy.exc import IntegrityError
 from newspaper import Article as NewsArticle
 from src.ingestion.database import get_session, Article
+from src.ingestion.image_filter import check_image_novelty
 
 # Load environment variables (e.g., NEWSAPI_KEY)
 load_dotenv()
@@ -46,13 +47,28 @@ class RSSFetcher:
             try:
                 feed = feedparser.parse(url)
                 for entry in feed.entries:
+                    # Extract image from RSS media tags (media:content, enclosure)
+                    rss_image = ''
+                    media_content = entry.get('media_content', [])
+                    if media_content and isinstance(media_content, list):
+                        for mc in media_content:
+                            if mc.get('medium') == 'image' or 'image' in mc.get('type', ''):
+                                rss_image = mc.get('url', '')
+                                break
+                    if not rss_image:
+                        for link in entry.get('links', []):
+                            if link.get('rel') == 'enclosure' and 'image' in link.get('type', ''):
+                                rss_image = link.get('href', '')
+                                break
+
                     articles.append({
                         'title': entry.get('title', ''),
                         'url': entry.get('link', ''),
                         'source': feed.feed.get('title', 'RSS Feed'),
                         'author': entry.get('author', ''),
                         'publishedAt': entry.get('published', datetime.utcnow().isoformat()),
-                        'content': entry.get('summary', '') or entry.get('description', '')
+                        'content': entry.get('summary', '') or entry.get('description', ''),
+                        'image_url': rss_image,
                     })
             except Exception as e:
                 print(f"Error fetching RSS feed '{url}': {e}")
@@ -86,6 +102,7 @@ def save_articles_to_db(raw_articles, source_type="NewsAPI"):
             continue
 
         raw_content = item.get('content') or item.get('description') or ''
+        top_image = item.get('image_url', '')  # RSS fallback image
         
         # Parse full text from live URL using newspaper3k
         if url:
@@ -97,9 +114,31 @@ def save_articles_to_db(raw_articles, source_type="NewsAPI"):
                     web_article.parse()
                     if web_article.text and len(web_article.text.strip()) > len(raw_content):
                         raw_content = web_article.text
+                    
+                    # ── Stage 2: DOM Hero Image Extraction ────────────────
+                    # newspaper3k extracts the og:image meta tag or the
+                    # structurally-promoted "top image" from the article DOM.
+                    # This instantly filters out ads, logos, and author photos.
+                    if web_article.top_image:
+                        top_image = web_article.top_image
             except Exception:
                 # Fallback to RSS snippet if scraping fails
                 pass
+
+        # ── Stage 3: Reverse Image Search (Novelty Filter) ────────────
+        # Run the image through heuristic filters (stock-photo domains,
+        # placeholder patterns, HTTP header checks) before saving.
+        image_status = 'no_image'
+        if top_image and top_image.startswith('http'):
+            novelty = check_image_novelty(top_image)
+            if novelty['is_novel']:
+                image_status = 'pending'   # Queued for Deepfake API
+            else:
+                image_status = 'discarded'
+                print(f"    [Stage 3] Image discarded: {novelty['reason']}")
+                top_image = top_image      # Keep URL for audit trail
+        else:
+            top_image = None
 
         source = item.get('source', {}).get('name') if isinstance(item.get('source'), dict) else item.get('source', source_type)
         author = item.get('author')
@@ -121,7 +160,9 @@ def save_articles_to_db(raw_articles, source_type="NewsAPI"):
             source=source,
             author=author,
             published_at=pub_date,
-            raw_content=raw_content
+            raw_content=raw_content,
+            image_url=top_image,
+            image_status=image_status,
         )
         session.add(article)
         try:
