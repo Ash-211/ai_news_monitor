@@ -138,9 +138,9 @@ def test_http_headers():
         try:
             verdict = _check_http_headers(url)
             was_rejected = verdict is not None
-        except Exception as e:
+        except Exception:
             was_rejected = False  # On error, filter passes through
-            desc += f" (error: {e})"
+            desc += " (error)"
         results.record(should_reject, was_rejected, desc)
 
     results.print_report()
