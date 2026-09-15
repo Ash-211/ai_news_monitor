@@ -231,7 +231,7 @@ def run_intelligence_pipeline():
                             article.image_status = verdict['image_status']
                             article.deepfake_score = verdict['deepfake_score']
                             filter_skipped += 1
-                            print(f"    [Filter 5] {verdict['reason']}")
+                            print("    [Filter 5] Trusted source bypass applied.")
                             continue
 
                         # ── Download image for local analysis ─────────
