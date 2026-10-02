@@ -356,10 +356,11 @@ def load_fake_news_detector():
         print(f"Fake news model not found at {MODEL_PATH}. Falling back to Hugging Face Hub...")
         model_name_or_path = "vinitsingare/distilbert_fake_news"
     
-    print(f"Loading DistilBERT from {model_name_or_path}...")
+    print(f"Loading Fake News model from {model_name_or_path}...")
     try:
-        tokenizer = DistilBertTokenizer.from_pretrained(model_name_or_path)
-        model = DistilBertForSequenceClassification.from_pretrained(model_name_or_path)
+        from transformers import AutoTokenizer, AutoModelForSequenceClassification
+        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+        model = AutoModelForSequenceClassification.from_pretrained(model_name_or_path)
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         model.to(device)
         model.eval()
