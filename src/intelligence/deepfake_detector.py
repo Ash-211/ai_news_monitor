@@ -69,43 +69,61 @@ def _query_sightengine_api(image_path: str) -> dict:
     """
     Tier 2: Query Sightengine API for enterprise-grade detection.
     This is only called if the C2PA manifest is missing or stripped.
+    Supports API Key Rotation if multiple comma-separated keys are provided in .env.
     """
-    api_user = os.getenv("SIGHTENGINE_API_USER")
-    api_secret = os.getenv("SIGHTENGINE_API_SECRET")
+    api_user_raw = os.getenv("SIGHTENGINE_API_USER")
+    api_secret_raw = os.getenv("SIGHTENGINE_API_SECRET")
     
-    if not api_user or not api_secret:
+    if not api_user_raw or not api_secret_raw:
         raise ValueError("Sightengine API credentials not found in environment.")
         
-    url = 'https://api.sightengine.com/1.0/check.json'
+    users = [u.strip() for u in api_user_raw.split(',') if u.strip()]
+    secrets = [s.strip() for s in api_secret_raw.split(',') if s.strip()]
     
-    try:
-        with open(image_path, 'rb') as image_file:
-            files = {'media': image_file}
-            data = {
-                'models': 'genai',
-                'api_user': api_user,
-                'api_secret': api_secret
-            }
-            response = requests.post(url, files=files, data=data, timeout=10)
-            
-        res_json = response.json()
-        if res_json.get('status') != 'success':
-            raise Exception(f"Sightengine API error: {res_json.get('error', {}).get('message', 'Unknown error')}")
-            
-        genai = res_json.get('type', {}).get('ai_generated', 0)
+    if len(users) != len(secrets):
+        logger.warning("Mismatch in number of Sightengine API users and secrets in .env!")
         
-        is_fake = genai > 0.50
-        score = genai
-        
-        return {
-            "is_fake": is_fake,
-            "score": score,
-            "explanation": f"**Sightengine Verification:** Deepfake probability is {score*100:.1f}%.",
-            "error": None
-        }
-    except Exception as e:
-        logger.error(f"Sightengine API request failed: {e}")
-        return {"is_fake": False, "score": 0.5, "explanation": str(e), "error": str(e)}
+    url = 'https://api.sightengine.com/1.0/check.json'
+    last_error = "Unknown error"
+    
+    # Auto-Rotating Key Manager: Try each key until one succeeds
+    for api_user, api_secret in zip(users, secrets):
+        try:
+            with open(image_path, 'rb') as image_file:
+                files = {'media': image_file}
+                data = {
+                    'models': 'genai',
+                    'api_user': api_user,
+                    'api_secret': api_secret
+                }
+                response = requests.post(url, files=files, data=data, timeout=10)
+                
+            res_json = response.json()
+            if res_json.get('status') == 'success':
+                genai = res_json.get('type', {}).get('ai_generated', 0)
+                is_fake = genai > 0.50
+                score = genai
+                
+                return {
+                    "is_fake": is_fake,
+                    "score": score,
+                    "explanation": f"**Sightengine Verification:** Deepfake probability is {score*100:.1f}%.",
+                    "error": None
+                }
+            else:
+                error_msg = res_json.get('error', {}).get('message', 'Unknown error')
+                last_error = f"Sightengine API error: {error_msg}"
+                logger.warning(f"Sightengine API key {api_user[:4]}... failed ({error_msg}). Trying next key if available...")
+                continue # Try the next key!
+                
+        except Exception as e:
+            last_error = f"Sightengine API request failed: {e}"
+            logger.warning(f"Request failed for key {api_user[:4]}... : {e}. Trying next key...")
+            continue # Try the next key!
+
+    # If we get here, ALL keys have failed (or none were provided correctly)
+    logger.error(f"All Sightengine API keys failed. Last error: {last_error}")
+    return {"is_fake": False, "score": 0.5, "explanation": str(last_error), "error": str(last_error)}
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  EXIF METADATA EXTRACTION
