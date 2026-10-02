@@ -33,7 +33,7 @@ def reprocess_all():
     for a in all_articles:
         # Build text (consistent with pipeline.py)
         title = a.title or ''
-        content = a.clean_content or a.raw_content or ''
+        content = a.raw_content or a.clean_content or ''
         
         # Load fact check data if available in old details
         verification_result = None

@@ -120,7 +120,7 @@ def run_intelligence_pipeline():
             sources_list = []
             for article in articles:
                 title = article.title or ''
-                content = article.clean_content or article.raw_content or ''
+                content = article.raw_content or article.clean_content or ''
                 
                 detection_titles.append(title)
                 detection_contents.append(content)
@@ -158,7 +158,7 @@ def run_intelligence_pipeline():
                     verified_count = 0
                     for article in unsure_articles:
                         title = article.title or ''
-                        content = article.clean_content or article.raw_content or ''
+                        content = article.raw_content or article.clean_content or ''
                         
                         verification = verify_article(title)
                         if verification.get("verification_score", 0.5) != 0.5:
