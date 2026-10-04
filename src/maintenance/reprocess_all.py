@@ -22,7 +22,7 @@ def reprocess_all():
 
     print("\n--- Reprocessing ALL Articles with New XAI Explanations ---")
     
-    all_articles = session.query(Article).all()
+    all_articles = session.query(Article).filter(Article.credibility_score == 0.5).all()
     print(f"Found {len(all_articles)} total articles.")
     if not all_articles:
         return
@@ -33,7 +33,7 @@ def reprocess_all():
     for a in all_articles:
         # Build text (consistent with pipeline.py)
         title = a.title or ''
-        content = a.clean_content or a.raw_content or ''
+        content = a.raw_content or a.clean_content or ''
         
         # Load fact check data if available in old details
         verification_result = None

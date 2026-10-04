@@ -9,7 +9,7 @@ import os
 import torch
 import numpy as np
 import pandas as pd
-from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from torch.utils.data import DataLoader, Dataset
 from torch.optim import AdamW
 from sklearn.model_selection import train_test_split
@@ -356,10 +356,11 @@ def load_fake_news_detector():
         print(f"Fake news model not found at {MODEL_PATH}. Falling back to Hugging Face Hub...")
         model_name_or_path = "vinitsingare/distilbert_fake_news"
     
-    print(f"Loading DistilBERT from {model_name_or_path}...")
+    print(f"Loading Fake News model from {model_name_or_path}...")
     try:
-        tokenizer = DistilBertTokenizer.from_pretrained(model_name_or_path)
-        model = DistilBertForSequenceClassification.from_pretrained(model_name_or_path)
+        from transformers import AutoTokenizer, AutoModelForSequenceClassification
+        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+        model = AutoModelForSequenceClassification.from_pretrained(model_name_or_path)
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         model.to(device)
         model.eval()
@@ -502,44 +503,26 @@ def generate_explanation(score: float, title: str = "", content: str = "",
     if risk_factors: prompt += f"Risk factors: {', '.join(risk_factors)}.\n"
     prompt += "\nWrite a detailed, dynamic explanation of exactly what the AI models think about this article's credibility based on the given indicators. Your explanation must be between 5 and 7 sentences long and professionally explain the reasoning."
 
-    import requests as hf_requests
-    hf_token = os.getenv("HF_TOKEN", "")
-
-    if hf_token:
-        # Candidate models supported by HF serverless inference router
-        candidate_models = [
-            "Qwen/Qwen2.5-72B-Instruct",
-            "mistralai/Mistral-7B-Instruct-v0.3",
-            "HuggingFaceH4/zephyr-7b-beta",
-            "meta-llama/Llama-3.2-3B-Instruct"
-        ]
-
-        for model_id in candidate_models:
-            try:
-                # First try OpenAI compatible endpoint
-                api_url = "https://router.huggingface.co/hf-inference/v1/chat/completions"
-                headers = {
-                    "Authorization": f"Bearer {hf_token}",
-                    "Content-Type": "application/json"
-                }
-                messages = [
-                    {"role": "system", "content": "You are a professional AI news verification assistant. You provide detailed, analytical reasoning for credibility scores."},
-                    {"role": "user", "content": prompt}
-                ]
-                payload = {
-                    "model": model_id,
-                    "messages": messages,
-                    "max_tokens": 250,
-                    "temperature": 0.75
-                }
-                hf_response = hf_requests.post(api_url, headers=headers, json=payload, timeout=3)
-                if hf_response.status_code == 200:
-                    response_data = hf_response.json()
-                    explanation = response_data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-                    if len(explanation) >= 15:
-                        return explanation
-            except Exception as e:
-                print(f"XAI Generation Error for model {model_id}: {e}")
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    
+    if gemini_key:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            full_prompt = (
+                "You are a professional AI news verification assistant. You provide detailed, analytical reasoning for credibility scores.\n\n"
+                f"{prompt}"
+            )
+            
+            response = model.generate_content(full_prompt)
+            explanation = response.text.strip()
+            
+            if len(explanation) >= 15:
+                return explanation
+        except Exception as e:
+            print(f"XAI Generation Error with Gemini: {e}")
 
     # Rich dynamic fallback explanation if AI model APIs are unavailable
     lines = []
@@ -581,14 +564,36 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
         import torch
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         
-        inputs = tokenizer(content, return_tensors="pt", truncation=True, padding=True, max_length=512)
+        # Combine title and content exactly like the training data
+        full_text = f"{title} {content}".strip()
+        
+        # Apply the exact same anti-bias normalization used in training
+        import re
+        full_text = re.sub(r'[\n\t\r]+', ' ', full_text)
+        full_text = re.sub(r'(?i)Published - .*?IST', '', full_text)
+        full_text = re.sub(r'(?i)Written by .*?(?=\s)', '', full_text)
+        full_text = re.sub(r'\s+', ' ', full_text).strip()
+        
+        inputs = tokenizer(full_text, return_tensors="pt", truncation=True, padding=True, max_length=256)
         inputs = {k: v.to(device) for k, v in inputs.items()}
         
         with torch.no_grad():
             outputs = model(**inputs)
-            probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
-            # Index 0 is REAL, Index 1 is FAKE
-            real_probability = probabilities[0][0].item()
+            probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)[0]
+            
+            # Dynamically map probabilities using the model's config to avoid label flipping bugs
+            id2label = getattr(model.config, 'id2label', {0: 'FAKE', 1: 'REAL'})
+            prob_dict = {str(v).upper(): probabilities[k].item() for k, v in id2label.items()}
+            
+            if "REAL" in prob_dict:
+                real_probability = prob_dict["REAL"]
+            elif "TRUE" in prob_dict:
+                real_probability = prob_dict["TRUE"]
+            elif "FAKE" in prob_dict:
+                real_probability = 1.0 - prob_dict["FAKE"]
+            else:
+                # Standard convention fallback
+                real_probability = probabilities[1].item() if len(probabilities) > 1 else 0.5
     else:
         # ── Call our dedicated HF Space worker (Gradio v5 API) ────────────
         worker_url = os.getenv("HF_WORKER_URL", "https://vinitsingare-ai-news-worker.hf.space")
