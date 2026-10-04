@@ -356,8 +356,9 @@ def load_fake_news_detector():
         print(f"Fake news model not found at {MODEL_PATH}. Falling back to Hugging Face Hub...")
         model_name_or_path = "vinitsingare/distilbert_fake_news"
     
-    print(f"Loading Model from {model_name_or_path}...")
+    print(f"Loading Fake News model from {model_name_or_path}...")
     try:
+        from transformers import AutoTokenizer, AutoModelForSequenceClassification
         tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         model = AutoModelForSequenceClassification.from_pretrained(model_name_or_path)
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -563,7 +564,17 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
         import torch
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         
-        inputs = tokenizer(content, return_tensors="pt", truncation=True, padding=True, max_length=512)
+        # Combine title and content exactly like the training data
+        full_text = f"{title} {content}".strip()
+        
+        # Apply the exact same anti-bias normalization used in training
+        import re
+        full_text = re.sub(r'[\n\t\r]+', ' ', full_text)
+        full_text = re.sub(r'(?i)Published - .*?IST', '', full_text)
+        full_text = re.sub(r'(?i)Written by .*?(?=\s)', '', full_text)
+        full_text = re.sub(r'\s+', ' ', full_text).strip()
+        
+        inputs = tokenizer(full_text, return_tensors="pt", truncation=True, padding=True, max_length=256)
         inputs = {k: v.to(device) for k, v in inputs.items()}
         
         with torch.no_grad():

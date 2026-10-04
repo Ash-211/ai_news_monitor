@@ -1,0 +1,30 @@
+name: Sync Dashboard to Frontend Repo
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'dashboard/**' # Only trigger when files inside the dashboard folder change
+
+jobs:
+  sync-to-frontend-repo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Push Dashboard folder to vinitsingare/newsdailyai
+        uses: cpina/github-action-push-to-another-repository@main
+        env:
+          # This requires a Personal Access Token from vinitsingare saved in Ash-211 repo secrets
+          API_TOKEN_GITHUB: ${{ secrets.FRONTEND_SYNC_TOKEN }}
+        with:
+          source-directory: 'dashboard'
+          destination-github-username: 'vinitsingare'
+          destination-repository-name: 'newsdailyai'
+          target-branch: 'main'
+          user-email: 'vinitsingare@users.noreply.github.com'
+          commit-message: 'Auto-sync frontend changes from Ash-211/ai_news_monitor'
