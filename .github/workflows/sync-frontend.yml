@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - fix/automodel-loader
     paths:
       - 'dashboard/**' # Only trigger when files inside the dashboard folder change
 
