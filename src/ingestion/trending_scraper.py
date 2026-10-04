@@ -394,8 +394,8 @@ Return ONLY a JSON array of the integer indices of the items you ACCEPT. Do not 
         print(f"  [Gatekeeper] Batch Gemini API error: {e}")
         return [item for item in items if is_news_or_claim(item.get("title", ""), item.get("content", ""))]
 def cross_validate_claim(title: str) -> dict:
-    """Uses Local DB and Google News search to cross-validate claims against trusted sources."""
-    sources = []
+    """Uses Local DB and Google News search to fetch RAG evidence for claims."""
+    evidence = []
     
     # 1. Search Local Database
     try:
@@ -406,8 +406,9 @@ def cross_validate_claim(title: str) -> dict:
             query = session.query(Article)
             for word in words:
                 query = query.filter(Article.title.ilike(f"%{word}%"))
-            for match in query.limit(3).all():
-                sources.append(match.source or "Local DB Article")
+            for match in query.limit(2).all():
+                src_name = match.source or "Local DB"
+                evidence.append(f"- {src_name}: {match.title}")
         session.close()
     except Exception as e:
         print(f"  [DB Cross-val] Error: {e}")
@@ -419,13 +420,18 @@ def cross_validate_claim(title: str) -> dict:
         query = urllib.parse.quote_plus(title[:100])
         rss_url = f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
         feed = feedparser.parse(rss_url)
-        if feed.entries:
-            sources.extend([entry.get("source", {}).get("title", "News Outlet") for entry in feed.entries[:3]])
+        for entry in feed.entries[:3]:
+            src_name = entry.get("source", {}).get("title", "News Outlet")
+            headline = entry.get("title", "")
+            evidence.append(f"- {src_name}: {headline}")
     except Exception:
         pass
         
-    unique_sources = list(set(sources))
-    return {"verified": len(unique_sources) > 0, "sources": unique_sources, "count": len(unique_sources)}
+    unique_evidence = list(set(evidence))
+    if not unique_evidence:
+        return {"verified": False, "evidence_string": "No major news outlets are reporting this."}
+        
+    return {"verified": True, "evidence_string": "\n".join(unique_evidence), "count": len(unique_evidence)}
 
 
 def analyze_trending_item(item: Dict, model=None, tokenizer=None) -> Dict:
@@ -570,17 +576,23 @@ def scan_all_platforms(
         print(f"  Warning: Could not load local model: {e}")
         print(f"  Will use HF Worker API for detection.\n")
     
-    analyzed_items = []
-    fake_count = 0
-    
+    # ── Fetch RAG Evidence & Batch Process ────────────────────────────
+    print("  Fetching cross-validation evidence for all claims...")
     for i, item in enumerate(news_items):
         safe_title = item['title'][:60].encode('ascii', 'ignore').decode()
-        print(f"  [{i+1}/{len(news_items)}] {item['platform'].upper():>10} | {safe_title}...")
-        analyzed = analyze_trending_item(item, model=model, tokenizer=tokenizer)
-        analyzed_items.append(analyzed)
+        print(f"  [{i+1}/{len(news_items)}] Fetching Evidence | {safe_title}...")
         
-        if analyzed.get("analysis", {}).get("is_fake"):
-            fake_count += 1
+        if item.get("platform") != "gnews":
+            cv = cross_validate_claim(item.get("title", ""))
+            item["verification"] = cv.get("evidence_string", "No major news outlets are reporting this.")
+        else:
+            item["verification"] = "Verified GNews source."
+
+    print(f"\n  Sending Batch RAG Ensemble request to Gemini for {len(news_items)} items...")
+    from src.intelligence.fake_news import detect_batch
+    analyzed_items = detect_batch(news_items, model=model, tokenizer=tokenizer)
+    
+    fake_count = sum(1 for x in analyzed_items if x.get("analysis", {}).get("is_fake"))
     
     # ── Sort: flagged items first, then by credibility (ascending) ────
     analyzed_items.sort(
