@@ -30,6 +30,32 @@ LABEL_MAP = {
 # Threshold below which an article is considered fake
 FAKE_THRESHOLD = 0.40
 
+def call_local_fact_checker(prompt: str) -> str:
+    """Passes the RAG prompt to the Hugging Face Serverless API and returns its response."""
+    try:
+        import os
+        from huggingface_hub import InferenceClient
+        token = os.environ.get("HF_TOKEN")
+        if not token:
+            print("[Fact-Checker] HF_TOKEN not found in environment! Please add it.")
+            return ""
+            
+        client = InferenceClient("meta-llama/Llama-3.2-3B-Instruct", token=token)
+        messages = [
+            {"role": "system", "content": "You are a professional JSON fact-checking API. Only output valid JSON array exactly as requested."},
+            {"role": "user", "content": prompt}
+        ]
+        
+        print("  [Fact-Checker] Querying Hugging Face Serverless API...")
+        response = client.chat_completion(
+            messages=messages,
+            max_tokens=4096,
+            temperature=0.1,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[HF API] Error generating response: {e}")
+        return ""
 
 def download_fake_news_dataset():
     """
@@ -494,35 +520,26 @@ def generate_explanation(score: float, title: str = "", content: str = "",
             elif total_outlets == 0:
                 risk_factors.append("no other major outlets are reporting this story, raising exclusivity concerns")
 
+
+
     # ── Build the explanation prompt ──────────────────────────────────
     prompt = f"Article Title: {title}\n"
     if source: prompt += f"Source: {source}\n"
-    prompt += f"Credibility Score: {int(score*100)}%\n"
-    if trust_factors: prompt += f"Positive indicators: {', '.join(trust_factors)}.\n"
-    if risk_factors: prompt += f"Risk factors: {', '.join(risk_factors)}.\n"
-    prompt += "\nWrite a detailed, dynamic explanation of exactly what the AI models think about this article's credibility based on the given indicators. Your explanation must be between 5 and 7 sentences long and professionally explain the reasoning."
-
-    gemini_key = os.getenv("GEMINI_API_KEY")
+    prompt += f"Transformer Grammar Score: {int(score*100)}%\n"
+    if isinstance(verification_result, str):
+        prompt += f"RAG Evidence: {verification_result}\n"
     
-    if gemini_key:
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            
-            full_prompt = (
-                "You are a professional AI news verification assistant. You provide detailed, analytical reasoning for credibility scores.\n\n"
-                f"{prompt}"
-            )
-            
-            response = model.generate_content(full_prompt)
-            explanation = response.text.strip()
-            
-            if len(explanation) >= 15:
-                return explanation
-        except Exception as e:
-            print(f"XAI Generation Error with Gemini: {e}")
+    prompt += "\nWrite a detailed, dynamic explanation of exactly what the AI models think about this article's credibility. Act as an ensemble fact-checker merging the grammar score and the fetched evidence. Your explanation must be between 4 and 6 sentences long."
 
+    full_prompt = (
+        "You are a professional AI news verification assistant. You provide detailed, analytical reasoning for credibility scores.\n\n"
+        f"{prompt}"
+    )
+    
+    explanation = call_local_fact_checker(full_prompt)
+    if explanation and len(explanation) >= 15:
+        return explanation
+        
     # Rich dynamic fallback explanation if AI model APIs are unavailable
     lines = []
     lines.append(f"This article received a credibility score of {int(score * 100)}%.")
@@ -542,35 +559,32 @@ def generate_explanation(score: float, title: str = "", content: str = "",
     return " ".join(lines)
 
 
-def detect_fake_news(title: str, content: str, model=None, tokenizer=None, source: str = None, verification_result: dict = None) -> tuple:
-    """
-    Checks if a single article is fake news using DistilBERT.
-    Returns: (is_fake, final_score, breakdown_dict)
-    """
+def detect_fake_news_local_only(title: str, content: str, model=None, tokenizer=None) -> float:
+    """Calculates purely the DistilBERT linguistic grammar score locally."""
     import os
-    import requests as hf_requests
-
     title = title or ""
     content = content or ""
-    
     if not content or len(content.strip()) < 10:
         content = title
 
-    # Fallback default score if API fails
     real_probability = 0.5 
-
     if model and tokenizer:
         import torch
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        full_text = f"{title} {content}".strip()
         
-        inputs = tokenizer(content, return_tensors="pt", truncation=True, padding=True, max_length=512)
+        import re
+        full_text = re.sub(r'[\n\t\r]+', ' ', full_text)
+        full_text = re.sub(r'(?i)Published - .*?IST', '', full_text)
+        full_text = re.sub(r'(?i)Written by .*?(?=\s)', '', full_text)
+        full_text = re.sub(r'\s+', ' ', full_text).strip()
+        
+        inputs = tokenizer(full_text, return_tensors="pt", truncation=True, padding=True, max_length=256)
         inputs = {k: v.to(device) for k, v in inputs.items()}
         
         with torch.no_grad():
             outputs = model(**inputs)
             probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)[0]
-            
-            # Dynamically map probabilities using the model's config to avoid label flipping bugs
             id2label = getattr(model.config, 'id2label', {0: 'FAKE', 1: 'REAL'})
             prob_dict = {str(v).upper(): probabilities[k].item() for k, v in id2label.items()}
             
@@ -581,62 +595,28 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
             elif "FAKE" in prob_dict:
                 real_probability = 1.0 - prob_dict["FAKE"]
             else:
-                # Standard convention fallback
                 real_probability = probabilities[1].item() if len(probabilities) > 1 else 0.5
-    else:
-        # ── Call our dedicated HF Space worker (Gradio v5 API) ────────────
-        worker_url = os.getenv("HF_WORKER_URL", "https://vinitsingare-ai-news-worker.hf.space")
-        call_url = f"{worker_url.rstrip('/')}/gradio_api/call/predict"
-
-        try:
-            import json as _json
-            import requests as hf_requests
-            
-            # Step 1: Request an event_id
-            response = hf_requests.post(call_url, json={"data": [content]}, timeout=15)
-            if response.status_code == 200:
-                event_id = response.json().get("event_id")
                 
-                # Step 2: Listen to the Server-Sent Events stream for completion
-                stream_url = f"{call_url}/{event_id}"
-                stream_response = hf_requests.get(stream_url, stream=True, timeout=30)
-                
-                for line in stream_response.iter_lines():
-                    if line:
-                        decoded = line.decode('utf-8')
-                        if decoded.startswith('data: '):
-                            data_str = decoded[6:]
-                            try:
-                                data_json = _json.loads(data_str)
-                                if isinstance(data_json, list) and len(data_json) > 0:
-                                    raw_output = data_json[0]
-                                    parsed = _json.loads(raw_output) if isinstance(raw_output, str) else raw_output
-                                    real_probability = float(parsed.get("real_probability", 0.5))
-                                    print(f"HF Worker prediction: {parsed.get('label')} (real={real_probability:.4f})")
-                                    break
-                            except Exception:
-                                pass
-            else:
-                print(f"HF Worker returned status {response.status_code}: {response.text[:200]}")
-        except Exception as e:
-            print(f"HF Worker failed: {e}")
+    return max(0.01, min(1.0, real_probability))
 
-    # External Verification Boost/Penalty (NewsAPI + Google Fact Check)
-    final_score = real_probability
+def detect_fake_news(title: str, content: str, model=None, tokenizer=None, source: str = None, verification_result: str = None) -> tuple:
+    """
+    Single-item fake news detection: gets local score, then calls RAG ensemble API.
+    """
+    local_score = detect_fake_news_local_only(title, content, model, tokenizer)
     
-    if verification_result and isinstance(verification_result, dict):
-        v_score = verification_result.get("verification_score", 0.5)
-        
-        if v_score >= 0.7:
-            final_score += 0.15
-        elif v_score <= 0.3:
-            final_score -= 0.15
+    # We use Gemini as an ensemble to merge the local score and RAG evidence
+    explanation = generate_explanation(local_score, title=title, content=content, source=source, verification_result=verification_result)
+    
+    # Simple fallback heuristic to extract a score if Gemini fails or doesn't output JSON
+    final_score = local_score
+    if verification_result and isinstance(verification_result, str):
+        if "Cross-validated by" in verification_result:
+            final_score = min(1.0, final_score + 0.3)
+        elif "No major news outlets" in verification_result or "could not be cross-validated" in verification_result:
+            final_score = max(0.01, final_score - 0.2)
             
-    final_score = max(0.01, min(1.0, final_score))
     is_fake = bool(final_score < FAKE_THRESHOLD)
-    
-    explanation = generate_explanation(final_score, title=title, content=content,
-                                       source=source, verification_result=verification_result)
     
     breakdown = {
         "explanation_text": explanation
@@ -645,28 +625,112 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
     return is_fake, final_score, breakdown
 
 
-def detect_batch(titles: list, contents: list, model=None, tokenizer=None, sources: list = None) -> list:
+def detect_batch(items: list, model=None, tokenizer=None) -> list:
     """
-    Runs fake news detection on a batch of articles.
-    Returns list of tuples: [(is_fake, final_score, breakdown_dict), ...]
+    Batch RAG Processing: Runs linguistic scoring locally for all items, 
+    then uses a single Gemini LLM call to process all items at once to save API calls.
+    Returns: List of modified items with ["analysis"] attached.
     """
-    results = []
-    for i, content in enumerate(contents):
-        title = titles[i] if titles and i < len(titles) else ""
-        source = sources[i] if sources and i < len(sources) else None
+    if not items:
+        return []
         
-        # We just reuse the single detect function which now uses the API
-        is_fake, final_score, breakdown = detect_fake_news(
-            content=content, 
-            title=title, 
-            model=model,
-            tokenizer=tokenizer,
-            source=source, 
-            verification_result=None
-        )
-        results.append((is_fake, final_score, breakdown))
+    # 1. Gather all local scores and build the batch prompt
+    prompt_lines = []
+    for i, item in enumerate(items):
+        title = item.get("title", "")
+        content = item.get("content", title)
+        local_score = detect_fake_news_local_only(title, content, model, tokenizer)
+        
+        # Save local score on item temporarily
+        item["_local_score"] = local_score
+        
+        evidence = item.get("verification", "No evidence fetched.")
+        
+        prompt_lines.append(f"--- Article [{i}] ---")
+        prompt_lines.append(f"Title: {title}")
+        prompt_lines.append(f"Transformer Grammar Score: {int(local_score*100)}%")
+        prompt_lines.append(f"Fetched RAG Evidence: {evidence}\n")
 
-    return results
+    batch_text = "\n".join(prompt_lines)
+    
+    prompt = f"""
+You are an elite journalistic fact-checker. I am providing you with {len(items)} articles.
+For each article, you are given:
+1. The 'Transformer Grammar Score' (0% to 100%, where 100% means perfect factual journalistic grammar, and 0% means highly sensationalized clickbait).
+2. 'Fetched RAG Evidence' (live headlines from verified news sources).
+
+TASK:
+You must score the credibility of each article by COMBINING the Transformer Grammar Score and the Facts.
+- The Facts: Compare the article's claim against the Fetched Evidence.
+- The Grammar: If the Transformer flagged the article as clickbait/sensationalized (low score), heavily penalize the final score even if the core event is true.
+- If there is ZERO evidence for a massive breaking news claim, score it as unverified (e.g. 0.30 - 0.45).
+
+Your explanation MUST explicitly state what exact facts were confirmed or contradicted by the evidence, AND mention if the Transformer model detected clickbait/sensational language.
+
+You MUST return a JSON array containing EXACTLY {len(items)} objects in the identical order as the input.
+Format:
+[
+  {{"final_score": 0.65, "explanation": "Evidence from Reuters confirms that [Fact X] happened, but the Transformer model flagged the article's language as highly sensationalized clickbait."}},
+  ...
+]
+Do not return any markdown wrappers, just the raw JSON array.
+
+ARTICLES:
+{batch_text}
+"""
+    response_text = call_local_fact_checker(prompt)
+    results = []
+    
+    try:
+        import json
+        text = response_text.strip()
+        
+        # Regex to robustly extract JSON from potential markdown wrapping
+        import re
+        match = re.search(r'\[\s*\{.*\}\s*\]', text, re.DOTALL)
+        if match:
+            text = match.group(0)
+            
+        if text.startswith("```json"): text = text[7:-3].strip()
+        if text.startswith("```"): text = text[3:-3].strip()
+        
+        parsed_results = json.loads(text)
+        if len(parsed_results) == len(items):
+            for i, res in enumerate(parsed_results):
+                final_score = float(res.get("final_score", items[i]["_local_score"]))
+                items[i]["analysis"] = {
+                    "is_fake": bool(final_score < FAKE_THRESHOLD),
+                    "credibility_score": round(final_score, 4),
+                    "explanation": res.get("explanation", "Verified by ensemble AI."),
+                    "verdict": "Potentially Misleading" if final_score < FAKE_THRESHOLD else "Likely Authentic",
+                }
+                # cleanup
+                del items[i]["_local_score"]
+            return items
+    except Exception as e:
+        print(f"[Batch Ensemble] Failed to parse JSON or Gemini error: {e}. Falling back to iterative processing.")
+    
+    # ── Fallback if API fails or returns bad JSON ──
+    for item in items:
+        title = item.get("title", "")
+        content = item.get("content", title)
+        source = item.get("source", "")
+        verification = item.get("verification", "")
+        
+        is_fake, final_score, breakdown = detect_fake_news(
+            title=title, content=content, model=model, tokenizer=tokenizer, 
+            source=source, verification_result=verification
+        )
+        
+        item["analysis"] = {
+            "is_fake": is_fake,
+            "credibility_score": round(final_score, 4),
+            "explanation": breakdown.get("explanation_text", ""),
+            "verdict": "Potentially Misleading" if is_fake else "Likely Authentic",
+        }
+        if "_local_score" in item: del item["_local_score"]
+        
+    return items
 
 
 if __name__ == "__main__":
