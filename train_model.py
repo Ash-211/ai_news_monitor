@@ -104,6 +104,22 @@ def fetch_dataset():
         # Remove rows with very little text
         df = df[df["full_text"].str.strip().str.len() > 20]
 
+        print("  Applying Anti-Bias Text Normalization (Removing Ollama formatting)...")
+        import re
+        def normalize_text(text):
+            if not isinstance(text, str):
+                return ""
+            # Remove all newlines and tabs (destroys Ollama \n\n formatting bias)
+            text = re.sub(r'[\n\t\r]+', ' ', text)
+            # Remove standard news metadata tags that might leak reality
+            text = re.sub(r'(?i)Published - .*?IST', '', text)
+            text = re.sub(r'(?i)Written by .*?(?=\s)', '', text)
+            # Normalize spaces
+            text = re.sub(r'\s+', ' ', text)
+            return text.strip()
+
+        df["full_text"] = df["full_text"].apply(normalize_text)
+
         # Convert boolean is_fake to integer labels: False->0 (Real), True->1 (Fake)
         df["label"] = df["is_fake"].astype(int)
 

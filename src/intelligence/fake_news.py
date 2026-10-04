@@ -582,10 +582,17 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
         import torch
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         
-        # Combine title and content exactly like the training data: df["full_text"] = title + " " + content
+        # Combine title and content exactly like the training data
         full_text = f"{title} {content}".strip()
         
-        inputs = tokenizer(full_text, return_tensors="pt", truncation=True, padding=True, max_length=512)
+        # Apply the exact same anti-bias normalization used in training
+        import re
+        full_text = re.sub(r'[\n\t\r]+', ' ', full_text)
+        full_text = re.sub(r'(?i)Published - .*?IST', '', full_text)
+        full_text = re.sub(r'(?i)Written by .*?(?=\s)', '', full_text)
+        full_text = re.sub(r'\s+', ' ', full_text).strip()
+        
+        inputs = tokenizer(full_text, return_tensors="pt", truncation=True, padding=True, max_length=256)
         inputs = {k: v.to(device) for k, v in inputs.items()}
         
         with torch.no_grad():
