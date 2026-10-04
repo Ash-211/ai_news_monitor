@@ -66,6 +66,25 @@ const ArticleCard = ({ article }) => {
         {showSummary && (
           <div className="article-summary-box">
              <div className="summary-scroll">
+               {article.image_url && (
+                 <div className="article-hero-image" style={{ marginBottom: '1rem', position: 'relative' }}>
+                   <img 
+                     src={article.image_url} 
+                     alt="Article Hero" 
+                     style={{ width: '100%', borderRadius: '8px', objectFit: 'cover', maxHeight: '300px', display: 'block' }} 
+                     onError={(e) => e.target.style.display = 'none'}
+                   />
+                   {article.deepfake_score !== null && article.deepfake_score !== undefined && (
+                     <div style={{ 
+                       position: 'absolute', top: '8px', right: '8px', 
+                       background: article.deepfake_score > 0.4 ? 'rgba(239, 68, 68, 0.9)' : 'rgba(34, 197, 94, 0.9)', 
+                       color: 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold' 
+                     }}>
+                       {article.deepfake_score > 0.4 ? '⚠️ AI Generated' : '✓ Real Image'} ({(article.deepfake_score * 100).toFixed(1)}%)
+                     </div>
+                   )}
+                 </div>
+               )}
                {article.full_content.split('\n').map((para, i) => (
                  para.trim() && <p key={i} className="summary-para">{para}</p>
                ))}
