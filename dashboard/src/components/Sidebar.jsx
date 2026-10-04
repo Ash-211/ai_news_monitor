@@ -16,6 +16,7 @@ const Sidebar = ({ stats, currentFilter, setCurrentFilter }) => {
   const isWhatsAppActive = location.pathname === '/whatsapp';
   const isVerifyActive = location.pathname === '/verify';
   const isDeepfakeActive = location.pathname === '/deepfake';
+  const isTrendingActive = location.pathname === '/trending';
 
   return (
     <aside className="sidebar">
@@ -27,21 +28,21 @@ const Sidebar = ({ stats, currentFilter, setCurrentFilter }) => {
       <div className="filter-section">
         <h3>Main Intelligence</h3>
         <button 
-          className={`filter-button ${(!isDiscordActive && !isWhatsAppActive && !isVerifyActive && !isDeepfakeActive && currentFilter === 'all') ? 'active' : ''}`}
+          className={`filter-button ${(!isDiscordActive && !isWhatsAppActive && !isVerifyActive && !isDeepfakeActive && !isTrendingActive && currentFilter === 'all') ? 'active' : ''}`}
           onClick={() => handleFilterClick('all')}
         >
           <span>Global Feed</span>
           <span className="badge">{stats?.total_articles || 0}</span>
         </button>
         <button 
-          className={`filter-button ${(!isDiscordActive && !isWhatsAppActive && !isVerifyActive && !isDeepfakeActive && currentFilter === 'real') ? 'active' : ''}`}
+          className={`filter-button ${(!isDiscordActive && !isWhatsAppActive && !isVerifyActive && !isDeepfakeActive && !isTrendingActive && currentFilter === 'real') ? 'active' : ''}`}
           onClick={() => handleFilterClick('real')}
         >
           <span>Verified Authentic</span>
           <span className="badge">{stats?.real_articles || 0}</span>
         </button>
         <button 
-          className={`filter-button ${(!isDiscordActive && !isWhatsAppActive && !isVerifyActive && !isDeepfakeActive && currentFilter === 'fake') ? 'active' : ''}`}
+          className={`filter-button ${(!isDiscordActive && !isWhatsAppActive && !isVerifyActive && !isDeepfakeActive && !isTrendingActive && currentFilter === 'fake') ? 'active' : ''}`}
           onClick={() => handleFilterClick('fake')}
         >
           <span>Flagged Fake</span>
@@ -120,6 +121,23 @@ const Sidebar = ({ stats, currentFilter, setCurrentFilter }) => {
           </svg>
           <span>Deepfake Detector</span>
         </button>
+        <button 
+          className={`filter-button ${isTrendingActive ? 'active' : ''}`}
+          onClick={() => navigate('/trending')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            color: isTrendingActive ? '#ef4444' : 'var(--text-muted)',
+            backgroundColor: isTrendingActive ? 'rgba(239, 68, 68, 0.08)' : 'transparent',
+            fontWeight: isTrendingActive ? '600' : '500'
+          }}
+        >
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          <span>Trending Scanner</span>
+        </button>
       </div>
 
       <div className="filter-section" style={{ marginTop: 'auto' }}>
@@ -127,7 +145,7 @@ const Sidebar = ({ stats, currentFilter, setCurrentFilter }) => {
         {stats?.categories && Object.entries(stats.categories).map(([category, count]) => (
           <button 
             key={category}
-            className={`filter-button ${(!isDiscordActive && !isWhatsAppActive && !isVerifyActive && !isDeepfakeActive && currentFilter === category) ? 'active' : ''}`}
+            className={`filter-button ${(!isDiscordActive && !isWhatsAppActive && !isVerifyActive && !isDeepfakeActive && !isTrendingActive && currentFilter === category) ? 'active' : ''}`}
             onClick={() => handleFilterClick(category)}
           >
             <span style={{ textTransform: 'capitalize' }}>{category}</span>
