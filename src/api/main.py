@@ -549,3 +549,35 @@ async def analyze_deepfake(
             pass
 
 # ── Intelligence Pipeline Trigger (Optional Internal) ─────────────────────────
+
+# ── Trending Social Media Scanner ─────────────────────────────────────────────
+
+class TrendingScanRequest(BaseModel):
+    platforms: list = None  # e.g., ["reddit", "gnews", "twitter", "facebook"]. None = all.
+    reddit_limit: int = 8
+    gnews_limit: int = 15
+
+@app.get("/api/trending/platforms")
+def get_trending_platforms():
+    """Returns metadata about available platforms for the frontend."""
+    from src.ingestion.trending_scraper import PLATFORMS
+    return {"platforms": PLATFORMS}
+
+@app.post("/api/trending/scan")
+def scan_trending(payload: TrendingScanRequest):
+    """
+    On-demand scan: scrapes trending content from selected social media
+    platforms and runs each item through the fake news detection pipeline.
+    Returns analyzed results sorted by risk (flagged items first).
+    """
+    try:
+        from src.ingestion.trending_scraper import scan_all_platforms
+        result = scan_all_platforms(
+            platforms=payload.platforms,
+            reddit_limit=payload.reddit_limit,
+            gnews_limit=payload.gnews_limit,
+        )
+        return result
+    except Exception as e:
+        logging.exception("Trending scan failed")
+        return {"error": f"Scan failed: {str(e)}", "items": [], "stats": {}}
