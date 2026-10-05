@@ -29,12 +29,13 @@ def run_intelligence_pipeline():
     try:
         # Fetch articles that need processing
         # An article needs processing if ANY intelligence field is NULL
+        # LIMIT 100 to prevent crashing the Hugging Face API with massive context windows
         articles = session.query(Article).filter(
             (Article.category == None) |
             (Article.is_fake == None) |
             (Article.keywords == None) |
             (Article.topic_cluster == None)
-        ).all()
+        ).limit(100).all()
 
         if not articles:
             print("No articles pending intelligence processing.")
