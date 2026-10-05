@@ -155,7 +155,8 @@ def verify_url(url: str) -> dict:
 
         article.parse()
         result["title"] = article.title or "Untitled Article"
-        result["raw_content"] = article.text or ""
+        result['raw_content'] = article.text or ''
+        result['image_url'] = article.top_image
 
         if not result["raw_content"] or len(result["raw_content"].strip()) < 50:
             result["error"] = (

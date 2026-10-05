@@ -172,7 +172,7 @@ const VerifyPage = () => {
           </div>
           
           <div style={{ textAlign: 'center', marginTop: '20px' }}>
-             <p style={{ color: 'var(--text-muted)', fontSize: '1rem', fontWeight: '500' }}>Analyzing article...</p>
+             <p style={{ color: 'var(--text-muted)', fontSize: '1rem', fontWeight: '500' }}>Analyzing article...</p><div className="loading-spinner" style={{ margin: "16px auto", width: "32px", height: "32px", border: "4px solid #e2e8f0", borderTop: "4px solid var(--primary)", borderRadius: "50%", animation: "spin 1s linear infinite" }}></div>
              <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '4px' }}>Scraping → Cleaning → Classifying → Detecting → Fact-checking</p>
           </div>
         </div>
@@ -225,7 +225,7 @@ const VerifyPage = () => {
               </div>
             </div>
 
-            {/* Body */}
+                        {/* Body */}
             <div className="verify-result-body">
               {/* AI Explanation */}
               {result.explanation && (
@@ -233,9 +233,19 @@ const VerifyPage = () => {
                   borderLeft: `4px solid ${getScoreColor(result.credibility_score)}`
                 }}>
                   <div className="verify-section-title">
-                    🤖 AI Analysis
+                    ?? AI Analysis
                   </div>
                   <p>{result.explanation}</p>
+                </div>
+              )}
+
+              {/* Extracted Image */}
+              {result.image_url && (
+                <div className="verify-section">
+                  <div className="verify-section-title">
+                    ?? Extracted Image
+                  </div>
+                  <img src={result.image_url} alt="Extracted" style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
                 </div>
               )}
 
@@ -243,7 +253,7 @@ const VerifyPage = () => {
               {result.keywords && result.keywords.length > 0 && (
                 <div className="verify-section">
                   <div className="verify-section-title">
-                    🔑 Extracted Keywords
+                    ??? Extracted Keywords
                   </div>
                   <div className="verify-keywords">
                     {result.keywords.map((kw, i) => (
@@ -252,68 +262,9 @@ const VerifyPage = () => {
                   </div>
                 </div>
               )}
-
-              {/* Fact-Check */}
-              {result.fact_check && (
-                <div className="verify-section">
-                  <div className="verify-section-title">
-                    🔎 External Fact-Check
-                  </div>
-
-                  <div className="verify-factcheck-grid">
-                    <div className="verify-factcheck-item">
-                      <span className="fc-value">
-                        {Math.round((result.fact_check.verification_score || 0) * 100)}%
-                      </span>
-                      <span className="fc-label">Verification Score</span>
-                    </div>
-
-                    {result.fact_check.cross_reference && (
-                      <div className="verify-factcheck-item">
-                        <span className="fc-value">
-                          {result.fact_check.cross_reference.total_results || 0}
-                        </span>
-                        <span className="fc-label">Other Outlets</span>
-                      </div>
-                    )}
-
-                    {result.fact_check.fact_check && result.fact_check.fact_check.claims_found > 0 && (
-                      <div className="verify-factcheck-item">
-                        <span className="fc-value">
-                          {result.fact_check.fact_check.claims_found}
-                        </span>
-                        <span className="fc-label">Fact-Check Claims</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Matching sources */}
-                  {result.fact_check.cross_reference?.matching_sources?.length > 0 && (
-                    <div className="verify-factcheck-sources">
-                      {result.fact_check.cross_reference.matching_sources.map((src, i) => (
-                        <span key={i} className="verify-factcheck-source-tag">{src}</span>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Google ratings */}
-                  {result.fact_check.fact_check?.ratings?.length > 0 && (
-                    <div className="verify-factcheck-sources" style={{ marginTop: '0.5rem' }}>
-                      {result.fact_check.fact_check.ratings.map((r, i) => (
-                        <span key={i} className="verify-factcheck-source-tag" style={{
-                          background: '#fef2f2',
-                          color: 'var(--danger)',
-                          border: '1px solid #fecaca'
-                        }}>
-                          {r}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
+            {/* Footer */}
             {/* Footer */}
             <div className="verify-result-footer">
               <button className="verify-again-btn" onClick={handleReset}>
@@ -336,3 +287,4 @@ const VerifyPage = () => {
 };
 
 export default VerifyPage;
+
