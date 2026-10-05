@@ -324,7 +324,7 @@ def train():
             all_labels.extend(labels_tensor.cpu().numpy())
 
     accuracy = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_labels)
-    print(f"\n  ✓ Test Accuracy: {accuracy * 100:.2f}%\n")
+    print(f"\n  [SUCCESS] Test Accuracy: {accuracy * 100:.2f}%\n")
     print(classification_report(
         all_labels, all_preds,
         target_names=["Real (Authentic)", "Fake (Misleading)"]
@@ -339,8 +339,8 @@ def train():
     model.save_pretrained(MODEL_SAVE_PATH)
     tokenizer.save_pretrained(MODEL_SAVE_PATH)
 
-    print(f"\n  ✓ Model saved to: {MODEL_SAVE_PATH}")
-    print(f"  ✓ The following files were created:")
+    print(f"\n  [SUCCESS] Model saved to: {MODEL_SAVE_PATH}")
+    print(f"  [SUCCESS] The following files were created:")
     for f in os.listdir(MODEL_SAVE_PATH):
         size = os.path.getsize(os.path.join(MODEL_SAVE_PATH, f))
         size_str = f"{size / 1024 / 1024:.1f} MB" if size > 1024 * 1024 else f"{size / 1024:.1f} KB"
