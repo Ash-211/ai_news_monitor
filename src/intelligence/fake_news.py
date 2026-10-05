@@ -605,10 +605,10 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
     """
     local_score = detect_fake_news_local_only(title, content, model, tokenizer)
     
-    # We use Gemini as an ensemble to merge the local score and RAG evidence
+    # We use Llama as an ensemble to merge the local score and RAG evidence
     explanation = generate_explanation(local_score, title=title, content=content, source=source, verification_result=verification_result)
     
-    # Simple fallback heuristic to extract a score if Gemini fails or doesn't output JSON
+    # Simple fallback heuristic to extract a score if Llama fails or doesn't output JSON
     final_score = local_score
     if verification_result and isinstance(verification_result, str):
         if "Cross-validated by" in verification_result:
@@ -628,7 +628,7 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
 def detect_batch(items: list, model=None, tokenizer=None) -> list:
     """
     Batch RAG Processing: Runs linguistic scoring locally for all items, 
-    then uses a single Gemini LLM call to process all items at once to save API calls.
+    then uses a single Llama LLM call to process all items at once to save API calls.
     Returns: List of modified items with ["analysis"] attached.
     """
     if not items:
@@ -708,7 +708,7 @@ ARTICLES:
                 del items[i]["_local_score"]
             return items
     except Exception as e:
-        print(f"[Batch Ensemble] Failed to parse JSON or Gemini error: {e}. Falling back to iterative processing.")
+        print(f"[Batch Ensemble] Failed to parse JSON or Llama error: {e}. Falling back to iterative processing.")
     
     # ── Fallback if API fails or returns bad JSON ──
     for item in items:

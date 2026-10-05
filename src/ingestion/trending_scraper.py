@@ -339,18 +339,17 @@ def is_news_or_claim(title: str, content: str) -> bool:
 
 def batch_llm_gatekeeper(items: List[Dict]) -> List[Dict]:
     """
-    Uses Google Gemini to filter out memes and casual chat in a single batch call.
+    Uses Llama 3.2 via Hugging Face API to filter out memes and casual chat in a single batch call.
     Only allows posts that are presenting themselves as factual claims or news.
     """
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("HF_TOKEN")
     if not api_key:
         return [item for item in items if is_news_or_claim(item.get("title", ""), item.get("content", ""))]
         
     try:
-        import google.generativeai as genai
+        from huggingface_hub import InferenceClient
         import json
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        client = InferenceClient("meta-llama/Llama-3.2-3B-Instruct", token=api_key)
         
         # Prepare batch input
         lines = []
@@ -377,9 +376,15 @@ Analyze these items:
 
 Return ONLY a JSON array of the integer indices of the items you ACCEPT. Do not include markdown formatting or explanation. Example: [0, 2, 5]
 """
-        response = model.generate_content(prompt)
+        messages = [
+            {"role": "system", "content": "You are a professional JSON filtering API. Output only the JSON array of accepted indices."},
+            {"role": "user", "content": prompt}
+        ]
+        
+        response = client.chat_completion(messages=messages, max_tokens=1024, temperature=0.1)
+        text = response.choices[0].message.content.strip()
+        
         # Parse the JSON array from response
-        text = response.text.strip()
         if text.startswith("```json"):
             text = text[7:-3].strip()
         elif text.startswith("```"):
@@ -391,7 +396,7 @@ Return ONLY a JSON array of the integer indices of the items you ACCEPT. Do not 
         filtered = [item for i, item in enumerate(items) if i in accepted_indices]
         return filtered
     except Exception as e:
-        print(f"  [Gatekeeper] Batch Gemini API error: {e}")
+        print(f"  [Gatekeeper] Batch Llama API error: {e}")
         return [item for item in items if is_news_or_claim(item.get("title", ""), item.get("content", ""))]
 def cross_validate_claim(title: str) -> dict:
     """Uses Local DB and Google News search to fetch RAG evidence for claims."""
@@ -588,7 +593,7 @@ def scan_all_platforms(
         else:
             item["verification"] = "Verified GNews source."
 
-    print(f"\n  Sending Batch RAG Ensemble request to Gemini for {len(news_items)} items...")
+    print(f"\n  Sending Batch RAG Ensemble request to Llama for {len(news_items)} items...")
     from src.intelligence.fake_news import detect_batch
     analyzed_items = detect_batch(news_items, model=model, tokenizer=tokenizer)
     
