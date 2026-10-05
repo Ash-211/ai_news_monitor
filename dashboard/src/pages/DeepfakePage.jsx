@@ -7,7 +7,7 @@ import './DeepfakePage.css';
  * per-frame timelines (for video), and XAI explanations.
  */
 const DeepfakePage = () => {
-  const API_BASE_URL = 'http://localhost:8003';
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
   // ── State ──────────────────────────────────────────────────────────
   const [file, setFile] = useState(null);

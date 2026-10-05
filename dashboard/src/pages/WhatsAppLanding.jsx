@@ -6,7 +6,7 @@ const WhatsAppLanding = () => {
   const [isAvailable, setIsAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
   useEffect(() => {
     const fetchWhatsAppInfo = async () => {
