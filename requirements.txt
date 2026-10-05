@@ -36,6 +36,7 @@ python-multipart>=0.0.6
 
 # Database (PostgreSQL support for Neon)
 psycopg2-binary==2.9.9
+pgvector>=0.2.4
 
 # Discord Bot
 discord.py==2.5.2

@@ -1,7 +1,8 @@
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, Float
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, Float, text
 from sqlalchemy.orm import declarative_base, sessionmaker
+from pgvector.sqlalchemy import Vector
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -40,6 +41,7 @@ class Article(Base):
     credibility_score = Column(Float, nullable=True)    # Fake news confidence (0.0-1.0)
     score_details = Column(Text, nullable=True)         # JSON string for XAI explanation
     keywords = Column(Text, nullable=True)              # Comma-separated TF-IDF keywords
+    embedding = Column(Vector(384), nullable=True)
     
     # Layer 4: Summarization
     summary_extractive = Column(Text, nullable=True)
@@ -81,7 +83,7 @@ class SocialMediaPost(Base):
     keywords = Column(Text, nullable=True)
     
     # Semantic Linking (To connect to News Articles)
-    event_vector_id = Column(String, nullable=True)    # For pgvector/semantic matching
+    embedding = Column(Vector(384), nullable=True)    # all-MiniLM-L6-v2 embeddings are 384-dimensional
 
     def __repr__(self):
         return f"<SocialMediaPost(title='{self.title[:30]}...', source='{self.source}')>"
@@ -137,6 +139,13 @@ def init_db():
     Works for both SQLite and PostgreSQL.
     """
     engine = get_engine()
+    
+    # Auto-enable pgvector extension on NeonDB
+    if _is_postgres():
+        with engine.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            conn.commit()
+            
     Base.metadata.create_all(engine)
     print("Database initialized successfully.")
 
