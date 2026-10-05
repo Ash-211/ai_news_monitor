@@ -617,27 +617,26 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
     # We use Llama as an ensemble to merge the local score and RAG evidence
     explanation = generate_explanation(local_score, title=title, content=content, source=source, verification_result=verification_result)
     
-    # Apply verification score adjustments
-    final_score = local_score
+    # Extract fact score from verification result if available
+    fact_score = 0.5
     if verification_result:
         if isinstance(verification_result, dict):
-            # verify_article() returns a dict with "verification_score"
-            v_score = verification_result.get("verification_score", 0.5)
-            if v_score >= 0.7:
-                final_score = min(1.0, final_score + 0.15)
-            elif v_score <= 0.3:
-                final_score = max(0.01, final_score - 0.15)
+            fact_score = verification_result.get("verification_score", 0.5)
         elif isinstance(verification_result, str):
-            # Legacy string-based fallback
             if "Cross-validated by" in verification_result:
-                final_score = min(1.0, final_score + 0.3)
+                fact_score = 0.8
             elif "No major news outlets" in verification_result or "could not be cross-validated" in verification_result:
-                final_score = max(0.01, final_score - 0.2)
+                fact_score = 0.2
             
+    # Combine Model (33.3%) and Fact-Check (66.7%) for text-only phase
+    # (This becomes 25% Model, 50% Fact-Check, 25% Image later in the pipeline)
+    final_score = (local_score * 0.333) + (fact_score * 0.667)
     is_fake = bool(final_score < FAKE_THRESHOLD)
     
     breakdown = {
-        "explanation_text": explanation
+        "explanation_text": explanation,
+        "fact_score": fact_score,
+        "model_score": local_score
     }
     
     return is_fake, final_score, breakdown
@@ -666,29 +665,26 @@ def detect_batch(items: list, model=None, tokenizer=None) -> list:
         
         prompt_lines.append(f"--- Article [{i}] ---")
         prompt_lines.append(f"Title: {title}")
-        prompt_lines.append(f"Transformer Grammar Score: {int(local_score*100)}%")
         prompt_lines.append(f"Fetched RAG Evidence: {evidence}\n")
 
     batch_text = "\n".join(prompt_lines)
     
     prompt = f"""
 You are an elite journalistic fact-checker. I am providing you with {len(items)} articles.
-For each article, you are given:
-1. The 'Transformer Grammar Score' (0% to 100%, where 100% means perfect factual journalistic grammar, and 0% means highly sensationalized clickbait).
-2. 'Fetched RAG Evidence' (live headlines from verified news sources).
+For each article, you are given the 'Fetched RAG Evidence' (live headlines from verified news sources).
 
 TASK:
-You must score the credibility of each article by COMBINING the Transformer Grammar Score and the Facts.
-- The Facts: Compare the article's claim against the Fetched Evidence.
-- The Grammar: If the Transformer flagged the article as clickbait/sensationalized (low score), heavily penalize the final score even if the core event is true.
-- If there is ZERO evidence for a massive breaking news claim, score it as unverified (e.g. 0.30 - 0.45).
+You must generate a 'fact_score' (0.0 to 1.0) based SOLELY on how well the Fetched Evidence supports the article's claims.
+- 1.0 = Strong evidence confirms the claim.
+- 0.5 = No evidence found, unverified, or neutral.
+- 0.0 = Evidence directly contradicts the claim (proven fake).
 
-Your explanation MUST explicitly state what exact facts were confirmed or contradicted by the evidence, AND mention if the Transformer model detected clickbait/sensational language.
+Your explanation MUST explicitly state what exact facts were confirmed or contradicted by the evidence.
 
 You MUST return a JSON array containing EXACTLY {len(items)} objects in the identical order as the input.
 Format:
 [
-  {{"final_score": 0.65, "explanation": "Evidence from Reuters confirms that [Fact X] happened, but the Transformer model flagged the article's language as highly sensationalized clickbait."}},
+  {{"fact_score": 0.85, "explanation": "Evidence from Reuters confirms that [Fact X] happened."}},
   ...
 ]
 Do not return any markdown wrappers, just the raw JSON array.
@@ -715,12 +711,20 @@ ARTICLES:
         parsed_results = json.loads(text)
         if len(parsed_results) == len(items):
             for i, res in enumerate(parsed_results):
-                final_score = float(res.get("final_score", items[i]["_local_score"]))
+                fact_score = float(res.get("fact_score", 0.5))
+                local_score = items[i]["_local_score"]
+                
+                # Combine Model (33.3%) and Fact-Check (66.7%) for text-only phase
+                # (This becomes 25% Model, 50% Fact-Check, 25% Image later in the pipeline)
+                final_score = (local_score * 0.333) + (fact_score * 0.667)
+                
                 items[i]["analysis"] = {
                     "is_fake": bool(final_score < FAKE_THRESHOLD),
                     "credibility_score": round(final_score, 4),
                     "explanation": res.get("explanation", "Verified by ensemble AI."),
                     "verdict": "Potentially Misleading" if final_score < FAKE_THRESHOLD else "Likely Authentic",
+                    "fact_score": fact_score,
+                    "model_score": local_score
                 }
                 # cleanup
                 del items[i]["_local_score"]
@@ -745,6 +749,8 @@ ARTICLES:
             "credibility_score": round(final_score, 4),
             "explanation": breakdown.get("explanation_text", ""),
             "verdict": "Potentially Misleading" if is_fake else "Likely Authentic",
+            "fact_score": breakdown.get("fact_score", 0.5),
+            "model_score": breakdown.get("model_score", 0.5)
         }
         if "_local_score" in item: del item["_local_score"]
         
