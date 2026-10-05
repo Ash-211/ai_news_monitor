@@ -110,37 +110,49 @@ def run_intelligence_pipeline():
                 article.keywords = ", ".join(all_keywords[i])
         print(f"  [OK] Extracted keywords for {len(articles)} articles.")
 
+        # ─── Step 3b: Event Linker Embeddings ────────────────────────
+        print("\n[3b/4] Generating Embeddings for Event Linking...")
+        try:
+            from src.intelligence.event_linker import get_embedding
+            embeddings_generated = 0
+            for article in articles:
+                if article.embedding is None:
+                    text_for_embed = f"{article.title} {article.clean_content or article.raw_content or ''}"[:500]
+                    article.embedding = get_embedding(text_for_embed)
+                    embeddings_generated += 1
+            print(f"  [OK] Generated vector embeddings for {embeddings_generated} articles.")
+        except Exception as e:
+            print(f"  [WARN] Failed to generate embeddings: {e}")
+
         # ─── Step 4: Fake News Detection ─────────────────────────────
         print("\n[4/4] Running Fake News Detection...")
         fake_news_model, fake_news_tokenizer = load_fake_news_detector()
         if fake_news_model and fake_news_tokenizer:
-            # Build separate arrays for titles and contents for dual-scoring
-            detection_titles = []
-            detection_contents = []
-            sources_list = []
+            # Build list of dicts matching detect_batch(items: list[dict]) signature
+            batch_items = []
             for article in articles:
-                title = article.title or ''
-                content = article.raw_content or article.clean_content or ''
+                batch_items.append({
+                    "title": article.title or '',
+                    "content": article.raw_content or article.clean_content or '',
+                    "source": article.source or '',
+                })
                 
-                detection_titles.append(title)
-                detection_contents.append(content)
-                sources_list.append(article.source)
-                
-            detections = detect_batch(
-                detection_titles, 
-                detection_contents, 
+            analyzed_items = detect_batch(
+                batch_items,
                 model=fake_news_model, 
                 tokenizer=fake_news_tokenizer,
-                sources=sources_list
             )
             
             import json
             for i, article in enumerate(articles):
                 if article.is_fake is None:
-                    is_fake, credibility, breakdown = detections[i]
-                    article.is_fake = is_fake
-                    article.credibility_score = credibility
-                    article.score_details = json.dumps(breakdown)
+                    analysis = analyzed_items[i].get("analysis", {})
+                    article.is_fake = analysis.get("is_fake", None)
+                    article.credibility_score = analysis.get("credibility_score", None)
+                    article.score_details = json.dumps({
+                        "explanation_text": analysis.get("explanation", ""),
+                        "verdict": analysis.get("verdict", ""),
+                    })
             print(f"  [OK] Analyzed {len(articles)} articles for credibility.")
             
             # ─── Step 4b: External Fact-Check for "unsure" articles ────
@@ -326,6 +338,11 @@ def run_intelligence_pipeline():
                             details['deepfake_penalty'] = -penalty
                             details['deepfake_score'] = df_score
                             article.score_details = json.dumps(details)
+                            
+                            # Re-evaluate is_fake flag with new score
+                            from src.intelligence.fake_news import FAKE_THRESHOLD
+                            if article.credibility_score < FAKE_THRESHOLD:
+                                article.is_fake = True
 
                             deepfake_penalty_count += 1
                             print(f"    [Penalty] {old_cred:.2f} -> {article.credibility_score:.2f} "

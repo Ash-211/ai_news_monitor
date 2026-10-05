@@ -45,7 +45,7 @@ NEON_DB_URL = (
 # ==========================================
 EPOCHS = 4                # 4 passes (approx 12-15 mins total)
 BATCH_SIZE = 16           # Back to 16 since we reduced sequence length
-MAX_SEQ_LENGTH = 256      # Back to 256 to fit in 4GB VRAM
+MAX_SEQ_LENGTH = 512      # Increased to 512 for full article context
 LEARNING_RATE = 2e-5      # Adjusted for RoBERTa architecture
 TEST_SPLIT = 0.2          # 80% train, 20% test
 
@@ -135,60 +135,21 @@ def fetch_dataset():
             print("    The model requires examples of both classes.")
             return None, None
 
-        # ── Stratified Downsampling ──────────────────────────────────
-        # Reduce real articles to match fake count, keeping category diversity
-        minority_count = min(real_count, fake_count)
-        majority_label = 0 if real_count > fake_count else 1
-        minority_label = 1 - majority_label
+        # ── Compute Class Weights for Loss Function ───────────────
+        real_weight = len(df) / (2.0 * real_count) if real_count > 0 else 1.0
+        fake_weight = len(df) / (2.0 * fake_count) if fake_count > 0 else 1.0
+        weights = [real_weight, fake_weight]
+        print(f"\n  Computed Class Weights (to handle imbalance):")
+        print(f"    -> Real Weight: {real_weight:.4f}")
+        print(f"    -> Fake Weight: {fake_weight:.4f}")
 
-        majority_class = "Real" if majority_label == 0 else "Fake"
-        minority_class = "Fake" if majority_label == 0 else "Real"
-
-        df_minority = df[df["label"] == minority_label]
-        df_majority = df[df["label"] == majority_label]
-
-        print(f"\n  Balancing dataset (stratified downsampling)...")
-        print(f"    {majority_class} articles: {len(df_majority)} -> {minority_count} (reducing)")
-        print(f"    {minority_class} articles: {len(df_minority)} (keeping all)")
-
-        # Group majority class by category and sample proportionally
-        categories = df_majority["category"].value_counts()
-        print(f"\n  {majority_class} articles by category (before sampling):")
-        for cat, count in categories.items():
-            print(f"      {cat}: {count}")
-
-        sampled_majority = df_majority.groupby("category", group_keys=False).apply(
-            lambda x: x.sample(
-                n=min(len(x), max(1, int(len(x) / len(df_majority) * minority_count))),
-                random_state=42
-            )
-        )
-
-        # If rounding caused us to be slightly off, adjust
-        if len(sampled_majority) > minority_count:
-            sampled_majority = sampled_majority.sample(n=minority_count, random_state=42)
-        elif len(sampled_majority) < minority_count:
-            # Fill remaining from unsampled majority articles
-            remaining = df_majority.drop(sampled_majority.index)
-            extra = remaining.sample(n=minority_count - len(sampled_majority), random_state=42)
-            sampled_majority = pd.concat([sampled_majority, extra])
-
-        # Combine balanced dataset
-        df_balanced = pd.concat([sampled_majority, df_minority]).sample(frac=1, random_state=42)
-
-        final_real = (df_balanced["label"] == 0).sum()
-        final_fake = (df_balanced["label"] == 1).sum()
-
-        print(f"\n  Balanced dataset:")
-        print(f"    -> Real: {final_real}")
-        print(f"    -> Fake: {final_fake}")
-        print(f"    -> Total: {len(df_balanced)}")
-        print(f"    -> Ratio: {max(final_real,final_fake)/max(min(final_real,final_fake),1):.2f}:1 (target 1:1)")
+        # Combine balanced dataset (Shuffle only)
+        df_balanced = df.sample(frac=1, random_state=42)
 
         texts = df_balanced["full_text"].tolist()
         labels = df_balanced["label"].tolist()
 
-        return texts, labels
+        return texts, labels, weights
 
     except Exception as e:
         print(f"  Database connection failed: {e}")
@@ -224,10 +185,11 @@ class FakeNewsDataset(Dataset):
 # ==========================================
 def train():
     # --- Fetch Data ---
-    texts, labels = fetch_dataset()
-    if texts is None:
+    fetch_result = fetch_dataset()
+    if fetch_result == (None, None):
         print("\nTraining aborted. Fix the issues above and try again.")
         sys.exit(1)
+    texts, labels, class_weights = fetch_result
 
     # --- Train/Test Split ---
     X_train, X_test, y_train, y_test = train_test_split(
@@ -269,15 +231,18 @@ def train():
     # Warm up for the first 10% of training steps
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=int(total_steps * 0.1), num_training_steps=total_steps)
 
-    # Dataset is now balanced via stratified downsampling, so standard
-    # CrossEntropyLoss works perfectly — no class weights needed!
-    loss_fn = torch.nn.CrossEntropyLoss()
-    print("\n  Using standard CrossEntropyLoss (dataset is balanced)")
+    # Apply class weights to handle imbalance
+    weights_tensor = torch.tensor(class_weights, dtype=torch.float32).to(device)
+    loss_fn = torch.nn.CrossEntropyLoss(weight=weights_tensor)
+    print(f"\n  Using weighted CrossEntropyLoss (Weights: {class_weights})")
 
-    # --- Training Loop ---
+    # --- Training Loop with Early Stopping ---
     print("\n" + "=" * 60)
-    print("  STEP 3: Fine-tuning RoBERTa")
+    print("  STEP 3: Fine-tuning RoBERTa with Early Stopping")
     print("=" * 60)
+
+    best_val_accuracy = 0
+    os.makedirs(MODEL_SAVE_PATH, exist_ok=True)
 
     for epoch in range(EPOCHS):
         model.train()
@@ -300,14 +265,39 @@ def train():
             scheduler.step()  # Update learning rate
 
         avg_loss = total_loss / len(train_loader)
-        print(f"  Average loss: {avg_loss:.4f}")
+        
+        # Validation step
+        model.eval()
+        all_preds = []
+        all_labels = []
+        with torch.no_grad():
+            for batch in test_loader:
+                input_ids = batch["input_ids"].to(device)
+                attention_mask = batch["attention_mask"].to(device)
+                labels_tensor = batch["labels"].to(device)
+                outputs = model(input_ids, attention_mask=attention_mask)
+                predictions = torch.argmax(outputs.logits, dim=-1)
+                all_preds.extend(predictions.cpu().numpy())
+                all_labels.extend(labels_tensor.cpu().numpy())
+                
+        val_accuracy = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_labels)
+        print(f"  Average loss: {avg_loss:.4f} | Val Accuracy: {val_accuracy*100:.2f}%")
+        
+        if val_accuracy > best_val_accuracy:
+            print(f"  [+] Validation accuracy improved ({best_val_accuracy*100:.2f}% -> {val_accuracy*100:.2f}%). Saving checkpoint...")
+            best_val_accuracy = val_accuracy
+            model.save_pretrained(MODEL_SAVE_PATH)
+            tokenizer.save_pretrained(MODEL_SAVE_PATH)
 
-    # --- Evaluation ---
+    # --- Final Evaluation on Best Model ---
     print("\n" + "=" * 60)
-    print("  STEP 4: Evaluating on test set")
+    print("  STEP 4: Final Evaluation on Best Model")
     print("=" * 60)
-
+    
+    model = RobertaForSequenceClassification.from_pretrained(MODEL_SAVE_PATH)
+    model.to(device)
     model.eval()
+    
     all_preds = []
     all_labels = []
 
@@ -323,24 +313,14 @@ def train():
             all_preds.extend(predictions.cpu().numpy())
             all_labels.extend(labels_tensor.cpu().numpy())
 
-    accuracy = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_labels)
-    print(f"\n  [SUCCESS] Test Accuracy: {accuracy * 100:.2f}%\n")
+    final_accuracy = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_labels)
+    print(f"\n  [SUCCESS] Best Test Accuracy: {final_accuracy * 100:.2f}%\n")
     print(classification_report(
         all_labels, all_preds,
         target_names=["Real (Authentic)", "Fake (Misleading)"]
     ))
 
-    # --- Save Model ---
-    print("=" * 60)
-    print("  STEP 5: Saving trained model")
-    print("=" * 60)
-
-    os.makedirs(MODEL_SAVE_PATH, exist_ok=True)
-    model.save_pretrained(MODEL_SAVE_PATH)
-    tokenizer.save_pretrained(MODEL_SAVE_PATH)
-
-    print(f"\n  [SUCCESS] Model saved to: {MODEL_SAVE_PATH}")
-    print(f"  [SUCCESS] The following files were created:")
+    print(f"\n  [SUCCESS] Best model saved to: {MODEL_SAVE_PATH}")
     for f in os.listdir(MODEL_SAVE_PATH):
         size = os.path.getsize(os.path.join(MODEL_SAVE_PATH, f))
         size_str = f"{size / 1024 / 1024:.1f} MB" if size > 1024 * 1024 else f"{size / 1024:.1f} KB"
