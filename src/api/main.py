@@ -63,6 +63,9 @@ def _build_engine():
     if db_url and db_url.startswith('postgresql'):
         # ── Cloud PostgreSQL (Neon) ──
         engine = create_engine(db_url, echo=False, pool_pre_ping=True)
+        # Ensure the vector extension exists for Neon/Postgres
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
         # Ensure tables are created in the database first
         Base.metadata.create_all(engine)
         with engine.connect() as conn:
