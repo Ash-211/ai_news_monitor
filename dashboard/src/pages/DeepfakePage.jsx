@@ -369,7 +369,7 @@ const DeepfakePage = () => {
                   AI Analysis
                 </h3>
                 {result.explanation.split('\n').filter(l => l.trim()).map((line, i) => (
-                  <p key={i} className="df-explanation-line">{line}</p>
+                  <p key={i} className="df-explanation-line">{line.replace(/\*\*/g, "")}</p>
                 ))}
               </div>
             )}
@@ -436,7 +436,7 @@ const DeepfakePage = () => {
                     <span className="df-badge df-badge-fake" style={{ marginLeft: '8px', fontSize: '0.75rem' }}>OUT OF CONTEXT</span>
                   )}
                 </h3>
-                <p className="df-context-explanation">{result.context_analysis.context_explanation}</p>
+                <p className="df-context-explanation">{result.context_analysis.context_explanation.replace(/\*\*/g, "")}</p>
               </div>
             )}
 
@@ -481,21 +481,25 @@ const DeepfakePage = () => {
                 <div className="df-score-bars">
                   {Object.entries(result.raw_scores)
                     .filter(([label]) => !['face_detected', 'fake_frame_ratio'].includes(label))
-                    .map(([label, score]) => (
-                    <div key={label} className="df-score-row">
-                      <span className="df-score-label">{label}</span>
-                      <div className="df-score-bar-track">
-                        <div
-                          className="df-score-bar-fill"
-                          style={{
-                            width: `${Math.round(score * 100)}%`,
-                            backgroundColor: label.toLowerCase().includes('fake') || label.toLowerCase().includes('ai') ? '#ef4444' : '#22c55e',
-                          }}
-                        />
-                      </div>
-                      <span className="df-score-value">{Math.round(score * 100)}%</span>
-                    </div>
-                  ))}
+                    .map(([label, score]) => {
+                      const isString = typeof score === 'string';
+                      const displayValue = isString ? (score === 'Missing' ? '100%' : score) : `${Math.round(score * 100)}%`;
+                      const barWidth = isString ? (score === 'Missing' ? '100%' : '0%') : `${Math.round(score * 100)}%`;
+                      const color = label.toLowerCase().includes('fake') || label.toLowerCase().includes('ai') ? '#ef4444' : '#22c55e';
+                      
+                      return (
+                        <div key={label} className="df-score-row">
+                          <span className="df-score-label">{label}</span>
+                          <div className="df-score-bar-track">
+                            <div
+                              className="df-score-bar-fill"
+                              style={{ width: barWidth, backgroundColor: color }}
+                            />
+                          </div>
+                          <span className="df-score-value">{displayValue}</span>
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
             )}
