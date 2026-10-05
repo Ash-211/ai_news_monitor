@@ -30,7 +30,7 @@ LABEL_MAP = {
 # Threshold below which an article is considered fake
 FAKE_THRESHOLD = 0.40
 
-def call_local_fact_checker(prompt: str) -> str:
+def call_local_fact_checker(prompt: str, json_mode: bool = True) -> str:
     """Passes the RAG prompt to the Hugging Face Serverless API and returns its response."""
     import os
     from huggingface_hub import InferenceClient
@@ -41,14 +41,20 @@ def call_local_fact_checker(prompt: str) -> str:
         return ""
         
     candidate_models = [
+        "Qwen/Qwen2.5-72B-Instruct",
         "meta-llama/Llama-3.2-3B-Instruct",
         "meta-llama/Meta-Llama-3-8B-Instruct",
-        "Qwen/Qwen2.5-72B-Instruct",
         "mistralai/Mistral-7B-Instruct-v0.3"
     ]
     
+    sys_prompt = (
+        "You are a professional JSON fact-checking API. Only output valid JSON array exactly as requested." 
+        if json_mode 
+        else "You are a professional AI news verification assistant. You provide detailed, analytical reasoning."
+    )
+    
     messages = [
-        {"role": "system", "content": "You are a professional JSON fact-checking API. Only output valid JSON array exactly as requested."},
+        {"role": "system", "content": sys_prompt},
         {"role": "user", "content": prompt}
     ]
     
@@ -545,7 +551,23 @@ def generate_explanation(score: float, title: str = "", content: str = "",
         f"{prompt}"
     )
     
-    explanation = call_local_fact_checker(full_prompt)
+    explanation = call_local_fact_checker(full_prompt, json_mode=False)
+    
+    # Try to parse out the text if it still gave us JSON (just in case)
+    try:
+        import json
+        parsed = json.loads(explanation)
+        if isinstance(parsed, list) and len(parsed) > 0 and 'explanation' in parsed[0]:
+            explanation = parsed[0]['explanation']
+        elif isinstance(parsed, dict) and 'explanation' in parsed:
+            explanation = parsed['explanation']
+    except:
+        pass
+        
+    # Strip markdown brackets
+    import re
+    explanation = re.sub(r'\[|\]|\{|\}', '', explanation)
+    
     if explanation and len(explanation) >= 15:
         return explanation
         
