@@ -375,12 +375,9 @@ def train_fake_news_detector(max_samples: int = 20000, epochs: int = 3, batch_si
 
 def load_fake_news_detector():
     """
-    Loads the trained fake news detector (DistilBERT) from disk or Hugging Face Hub.
+    Loads the trained fake news detector (DistilBERT) directly from Hugging Face Hub.
     """
-    model_name_or_path = MODEL_PATH
-    if not os.path.exists(MODEL_PATH):
-        print(f"Fake news model not found at {MODEL_PATH}. Falling back to Hugging Face Hub...")
-        model_name_or_path = "vinitsingare/distilbert_fake_news"
+    model_name_or_path = "vinitsingare/distilbert_fake_news"
     
     print(f"Loading Model from {model_name_or_path}...")
     try:
