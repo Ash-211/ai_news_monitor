@@ -32,30 +32,42 @@ FAKE_THRESHOLD = 0.40
 
 def call_local_fact_checker(prompt: str) -> str:
     """Passes the RAG prompt to the Hugging Face Serverless API and returns its response."""
-    try:
-        import os
-        from huggingface_hub import InferenceClient
-        token = os.environ.get("HF_TOKEN")
-        if not token:
-            print("[Fact-Checker] HF_TOKEN not found in environment! Please add it.")
-            return ""
-            
-        client = InferenceClient("meta-llama/Llama-3.2-3B-Instruct", token=token)
-        messages = [
-            {"role": "system", "content": "You are a professional JSON fact-checking API. Only output valid JSON array exactly as requested."},
-            {"role": "user", "content": prompt}
-        ]
-        
-        print("  [Fact-Checker] Querying Hugging Face Serverless API...")
-        response = client.chat_completion(
-            messages=messages,
-            max_tokens=4096,
-            temperature=0.1,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"[HF API] Error generating response: {e}")
+    import os
+    from huggingface_hub import InferenceClient
+    
+    token = os.environ.get("HF_TOKEN")
+    if not token:
+        print("[Fact-Checker] HF_TOKEN not found in environment! Please add it.")
         return ""
+        
+    candidate_models = [
+        "meta-llama/Llama-3.2-3B-Instruct",
+        "meta-llama/Meta-Llama-3-8B-Instruct",
+        "Qwen/Qwen2.5-72B-Instruct",
+        "mistralai/Mistral-7B-Instruct-v0.3"
+    ]
+    
+    messages = [
+        {"role": "system", "content": "You are a professional JSON fact-checking API. Only output valid JSON array exactly as requested."},
+        {"role": "user", "content": prompt}
+    ]
+    
+    for model_id in candidate_models:
+        try:
+            print(f"  [Fact-Checker] Querying HF Serverless API with {model_id}...")
+            client = InferenceClient(model_id, token=token)
+            response = client.chat_completion(
+                messages=messages,
+                max_tokens=4096,
+                temperature=0.1,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"  [HF API] Error with {model_id}: {e}")
+            continue
+            
+    print("[Fact-Checker] All candidate models failed.")
+    return ""
 
 def download_fake_news_dataset():
     """
