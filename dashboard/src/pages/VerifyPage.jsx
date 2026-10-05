@@ -7,7 +7,7 @@ const VerifyPage = () => {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
   const handleVerify = async () => {
     const trimmed = url.trim();
