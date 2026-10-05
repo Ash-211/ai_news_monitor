@@ -152,13 +152,14 @@ def run_intelligence_pipeline():
                     article.score_details = json.dumps({
                         "explanation_text": analysis.get("explanation", ""),
                         "verdict": analysis.get("verdict", ""),
+                        "fact_score": analysis.get("fact_score", 0.5),
+                        "model_score": analysis.get("model_score", 0.5)
                     })
             print(f"  [OK] Analyzed {len(articles)} articles for credibility.")
             
             # ─── Step 4b: External Fact-Check for "unsure" articles ────
             try:
                 from src.intelligence.fact_checker import verify_article
-                from src.intelligence.fake_news import detect_fake_news
                 
                 unsure_articles = [
                     a for a in articles 
@@ -170,21 +171,32 @@ def run_intelligence_pipeline():
                     verified_count = 0
                     for article in unsure_articles:
                         title = article.title or ''
-                        content = article.raw_content or article.clean_content or ''
                         
                         verification = verify_article(title)
-                        if verification.get("verification_score", 0.5) != 0.5:
-                            # Re-run detection with verification data
-                            is_fake, new_score, new_breakdown = detect_fake_news(
-                                title, content, 
-                                model=fake_news_model,
-                                tokenizer=fake_news_tokenizer,
-                                source=article.source, 
-                                verification_result=verification
-                            )
-                            article.is_fake = is_fake
-                            article.credibility_score = new_score
-                            article.score_details = json.dumps(new_breakdown)
+                        v_score = verification.get("verification_score", 0.5)
+                        
+                        if v_score != 0.5:
+                            # Merge external verification with LLM fact score
+                            try:
+                                details = json.loads(article.score_details) if article.score_details else {}
+                            except:
+                                details = {}
+                                
+                            llm_fact = details.get("fact_score", 0.5)
+                            model_score = details.get("model_score", 0.5)
+                            
+                            # Average the two fact-checking sources
+                            new_fact_score = (llm_fact + v_score) / 2.0
+                            
+                            # Recalculate combined score (2/3 fact, 1/3 model)
+                            new_final_score = (new_fact_score * 0.667) + (model_score * 0.333)
+                            
+                            from src.intelligence.fake_news import FAKE_THRESHOLD
+                            article.is_fake = bool(new_final_score < FAKE_THRESHOLD)
+                            article.credibility_score = new_final_score
+                            
+                            details["fact_score"] = new_fact_score
+                            article.score_details = json.dumps(details)
                             verified_count += 1
                     print(f"  [OK] Externally verified {verified_count} articles.")
                 else:
@@ -313,40 +325,42 @@ def run_intelligence_pipeline():
                             except OSError:
                                 pass
 
-                # ── Apply credibility penalty for deepfake images ─────
+                # ── Apply 50% Fact / 25% Model / 25% Image score recalculation ─────
                 deepfake_penalty_count = 0
                 for article in pending_images:
-                    if article.image_status == 'deepfake' and article.credibility_score is not None:
+                    if article.image_status in ['deepfake', 'real'] and article.credibility_score is not None:
                         df_score = article.deepfake_score or 0.5
-                        if df_score >= 0.90:
-                            penalty = 0.25
-                        elif df_score >= 0.70:
-                            penalty = 0.15
-                        elif df_score >= 0.50:
-                            penalty = 0.10
-                        else:
-                            penalty = 0.0
-
-                        if penalty > 0:
-                            old_cred = article.credibility_score
-                            article.credibility_score = max(0.01, article.credibility_score - penalty)
-
-                            try:
-                                details = json.loads(article.score_details) if article.score_details else {}
-                            except Exception:
-                                details = {}
-                            details['deepfake_penalty'] = -penalty
-                            details['deepfake_score'] = df_score
-                            article.score_details = json.dumps(details)
+                        
+                        try:
+                            details = json.loads(article.score_details) if article.score_details else {}
+                        except Exception:
+                            details = {}
                             
-                            # Re-evaluate is_fake flag with new score
-                            from src.intelligence.fake_news import FAKE_THRESHOLD
-                            if article.credibility_score < FAKE_THRESHOLD:
-                                article.is_fake = True
+                        # Retrieve previous components
+                        fact_score = details.get("fact_score", article.credibility_score)
+                        model_score = details.get("model_score", article.credibility_score)
+                        
+                        # Calculate Image Authenticity
+                        image_authenticity = 1.0 - df_score
+                        
+                        # Apply User's EXACT Requested Formula:
+                        # 50% Fact Checking, 25% AI Model, 25% Image Detection
+                        old_cred = article.credibility_score
+                        new_credibility = (fact_score * 0.50) + (model_score * 0.25) + (image_authenticity * 0.25)
+                        
+                        article.credibility_score = max(0.01, new_credibility)
+                        
+                        # Re-evaluate is_fake flag with new score
+                        from src.intelligence.fake_news import FAKE_THRESHOLD
+                        article.is_fake = bool(article.credibility_score < FAKE_THRESHOLD)
+                            
+                        details['deepfake_score'] = df_score
+                        details['image_authenticity'] = image_authenticity
+                        article.score_details = json.dumps(details)
 
-                            deepfake_penalty_count += 1
-                            print(f"    [Penalty] {old_cred:.2f} -> {article.credibility_score:.2f} "
-                                  f"(-{penalty:.2f}): {article.title[:50]}...")
+                        deepfake_penalty_count += 1
+                        print(f"    [Image Validated] {old_cred:.2f} -> {article.credibility_score:.2f} "
+                              f"(Fact: {fact_score:.2f}, Model: {model_score:.2f}, Image: {image_authenticity:.2f}): {article.title[:50]}...")
 
                 print(f"\n  [5] Complete: {api_calls_made} API calls, {filter_skipped} skipped by pre-filters, "
                       f"{deepfake_penalty_count} deepfake penalties applied.")
