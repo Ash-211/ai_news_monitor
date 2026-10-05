@@ -49,6 +49,44 @@ class Article(Base):
         return f"<Article(title='{self.title[:30]}...', source='{self.source}')>"
 
 
+class SocialMediaPost(Base):
+    """
+    Representation of a social media post (Reddit, Twitter, Facebook) in the database.
+    Stores raw ingestion data, deepfake image provenance, and fact-check scores.
+    """
+    __tablename__ = 'social_media_posts'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String, nullable=False)
+    url = Column(String, unique=True, nullable=False)
+    source = Column(String, nullable=True)             # e.g., Reddit, Twitter
+    author = Column(String, nullable=True)
+    published_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Text Content
+    raw_content = Column(Text, nullable=True)
+    clean_content = Column(Text, nullable=True)
+    
+    # Layer 2: Image Provenance (Deepfake Pipeline)
+    image_url = Column(String, nullable=True)
+    image_status = Column(String, default='pending')
+    deepfake_score = Column(Float, nullable=True)
+    
+    # Layer 3: Pipeline Results (Intelligence)
+    category = Column(String, nullable=True)
+    is_fake = Column(Boolean, nullable=True)
+    topic_cluster = Column(Integer, nullable=True)
+    credibility_score = Column(Float, nullable=True)
+    score_details = Column(Text, nullable=True)
+    keywords = Column(Text, nullable=True)
+    
+    # Semantic Linking (To connect to News Articles)
+    event_vector_id = Column(String, nullable=True)    # For pgvector/semantic matching
+
+    def __repr__(self):
+        return f"<SocialMediaPost(title='{self.title[:30]}...', source='{self.source}')>"
+
+
 class DiscordSubscription(Base):
     """
     Tracks which Discord channels are subscribed to receive
