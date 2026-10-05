@@ -142,10 +142,22 @@ def init_db():
     
     # Auto-enable pgvector extension on NeonDB
     if _is_postgres():
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-            conn.commit()
             
+            # Ensure embedding columns exist (in case tables were created before pgvector was enabled)
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'articles' AND column_name = 'embedding'
+                    ) THEN
+                        ALTER TABLE articles ADD COLUMN embedding VECTOR(384);
+                    END IF;
+                END $$;
+            """))
+
     Base.metadata.create_all(engine)
     print("Database initialized successfully.")
 

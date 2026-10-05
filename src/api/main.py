@@ -74,6 +74,19 @@ def _build_engine():
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_articles_category      ON articles (category)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_articles_is_fake       ON articles (is_fake)"))
 
+            # Ensure embedding columns exist (in case tables were created before pgvector was enabled)
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'articles' AND column_name = 'embedding'
+                    ) THEN
+                        ALTER TABLE articles ADD COLUMN embedding VECTOR(384);
+                    END IF;
+                END $$;
+            """))
+
             # PostgreSQL Full-Text Search: add a tsvector column + GIN index
             # Step 1: Add the column if it doesn't exist
             conn.execute(text("""
