@@ -66,9 +66,30 @@ const ArticleCard = ({ article }) => {
         {showSummary && (
           <div className="article-summary-box">
              <div className="summary-scroll">
-               {article.full_content.split('\n').map((para, i) => (
+               {article.full_content && article.full_content.split('\n').map((para, i) => (
                  para.trim() && <p key={i} className="summary-para">{para}</p>
                ))}
+               
+               {article.image_url && article.image_status !== 'discarded' && (
+                 <div className="article-image-preview" style={{ marginTop: '16px', textAlign: 'center' }}>
+                   <img 
+                     src={article.image_url} 
+                     alt="Article preview" 
+                     style={{ 
+                       maxWidth: '100%', 
+                       maxHeight: '300px', 
+                       borderRadius: '8px', 
+                       border: '1px solid #e2e8f0',
+                       boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                     }} 
+                   />
+                   {article.image_status === 'deepfake' && (
+                     <div style={{ color: 'var(--danger)', fontSize: '12px', fontWeight: 'bold', marginTop: '8px' }}>
+                       ⚠️ Warning: This image has been flagged as highly likely to be a Deepfake or AI-generated.
+                     </div>
+                   )}
+                 </div>
+               )}
              </div>
           </div>
         )}
