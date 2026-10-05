@@ -1,7 +1,8 @@
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, Float
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, Float, text
 from sqlalchemy.orm import declarative_base, sessionmaker
+from pgvector.sqlalchemy import Vector
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -40,6 +41,7 @@ class Article(Base):
     credibility_score = Column(Float, nullable=True)    # Fake news confidence (0.0-1.0)
     score_details = Column(Text, nullable=True)         # JSON string for XAI explanation
     keywords = Column(Text, nullable=True)              # Comma-separated TF-IDF keywords
+    embedding = Column(Vector(384), nullable=True)
     
     # Layer 4: Summarization
     summary_extractive = Column(Text, nullable=True)
@@ -47,6 +49,44 @@ class Article(Base):
 
     def __repr__(self):
         return f"<Article(title='{self.title[:30]}...', source='{self.source}')>"
+
+
+class SocialMediaPost(Base):
+    """
+    Representation of a social media post (Reddit, Twitter, Facebook) in the database.
+    Stores raw ingestion data, deepfake image provenance, and fact-check scores.
+    """
+    __tablename__ = 'social_media_posts'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String, nullable=False)
+    url = Column(String, unique=True, nullable=False)
+    source = Column(String, nullable=True)             # e.g., Reddit, Twitter
+    author = Column(String, nullable=True)
+    published_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Text Content
+    raw_content = Column(Text, nullable=True)
+    clean_content = Column(Text, nullable=True)
+    
+    # Layer 2: Image Provenance (Deepfake Pipeline)
+    image_url = Column(String, nullable=True)
+    image_status = Column(String, default='pending')
+    deepfake_score = Column(Float, nullable=True)
+    
+    # Layer 3: Pipeline Results (Intelligence)
+    category = Column(String, nullable=True)
+    is_fake = Column(Boolean, nullable=True)
+    topic_cluster = Column(Integer, nullable=True)
+    credibility_score = Column(Float, nullable=True)
+    score_details = Column(Text, nullable=True)
+    keywords = Column(Text, nullable=True)
+    
+    # Semantic Linking (To connect to News Articles)
+    embedding = Column(Vector(384), nullable=True)    # all-MiniLM-L6-v2 embeddings are 384-dimensional
+
+    def __repr__(self):
+        return f"<SocialMediaPost(title='{self.title[:30]}...', source='{self.source}')>"
 
 
 class DiscordSubscription(Base):
@@ -99,6 +139,13 @@ def init_db():
     Works for both SQLite and PostgreSQL.
     """
     engine = get_engine()
+    
+    # Auto-enable pgvector extension on NeonDB
+    if _is_postgres():
+        with engine.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            conn.commit()
+            
     Base.metadata.create_all(engine)
     print("Database initialized successfully.")
 
