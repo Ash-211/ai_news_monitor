@@ -608,7 +608,7 @@ def detect_fake_news_local_only(title: str, content: str, model=None, tokenizer=
                 
     return max(0.01, min(1.0, real_probability))
 
-def detect_fake_news(title: str, content: str, model=None, tokenizer=None, source: str = None, verification_result: str = None) -> tuple:
+def detect_fake_news(title: str, content: str, model=None, tokenizer=None, source: str = None, verification_result = None) -> tuple:
     """
     Single-item fake news detection: gets local score, then calls RAG ensemble API.
     """
@@ -617,13 +617,22 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
     # We use Llama as an ensemble to merge the local score and RAG evidence
     explanation = generate_explanation(local_score, title=title, content=content, source=source, verification_result=verification_result)
     
-    # Simple fallback heuristic to extract a score if Llama fails or doesn't output JSON
+    # Apply verification score adjustments
     final_score = local_score
-    if verification_result and isinstance(verification_result, str):
-        if "Cross-validated by" in verification_result:
-            final_score = min(1.0, final_score + 0.3)
-        elif "No major news outlets" in verification_result or "could not be cross-validated" in verification_result:
-            final_score = max(0.01, final_score - 0.2)
+    if verification_result:
+        if isinstance(verification_result, dict):
+            # verify_article() returns a dict with "verification_score"
+            v_score = verification_result.get("verification_score", 0.5)
+            if v_score >= 0.7:
+                final_score = min(1.0, final_score + 0.15)
+            elif v_score <= 0.3:
+                final_score = max(0.01, final_score - 0.15)
+        elif isinstance(verification_result, str):
+            # Legacy string-based fallback
+            if "Cross-validated by" in verification_result:
+                final_score = min(1.0, final_score + 0.3)
+            elif "No major news outlets" in verification_result or "could not be cross-validated" in verification_result:
+                final_score = max(0.01, final_score - 0.2)
             
     is_fake = bool(final_score < FAKE_THRESHOLD)
     

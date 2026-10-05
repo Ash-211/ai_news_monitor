@@ -39,34 +39,20 @@ from src.intelligence.fake_news import (
 )
 
 
-def build_test_set(max_samples: int = 20000):
+def build_test_set():
     """
     Reproduces the exact same train/test split used during training
     so that the test set has NOT been seen by the model.
     """
-    texts, labels = download_fake_news_dataset()
-    if texts is None:
-        print("ERROR: Could not load any dataset.")
+    from train_model import fetch_dataset
+    fetch_result = fetch_dataset()
+    if fetch_result == (None, None):
+        print("ERROR: Could not load any dataset from Neon DB.")
         sys.exit(1)
+        
+    texts, labels, _ = fetch_result
 
-    # Sub-sample if needed (same seed as training)
-    if len(texts) > max_samples:
-        indices = np.random.RandomState(42).choice(len(texts), max_samples, replace=False)
-        texts = [texts[i] for i in indices]
-        labels = [labels[i] for i in indices]
-
-    # Augment with Indian real + fake news (mirrors training pipeline)
-    aug_texts, aug_labels = _get_indian_news_augmentation()
-    if aug_texts:
-        texts.extend(aug_texts)
-        labels.extend(aug_labels)
-
-    fake_aug_texts, fake_aug_labels = _get_indian_fake_news_augmentation()
-    if fake_aug_texts:
-        texts.extend(fake_aug_texts)
-        labels.extend(fake_aug_labels)
-
-    # Same split parameters as train_fake_news_detector()
+    # Same split parameters as train()
     _, X_test, _, y_test = train_test_split(
         texts, labels, test_size=0.2, random_state=42, stratify=labels
     )
@@ -116,9 +102,18 @@ def evaluate():
             labels_tensor = batch["labels"].to(device)
 
             outputs = model(input_ids, attention_mask=attention_mask)
-            predictions = torch.argmax(outputs.logits, dim=-1)
+            
+            # Extract probabilities
+            probs = torch.nn.functional.softmax(outputs.logits, dim=-1)
+            
+            # Predict based on FAKE_THRESHOLD
+            # Assuming id2label maps 0 -> Real, 1 -> Fake. If so, probs[:,0] is prob(Real)
+            # If prob(Real) < FAKE_THRESHOLD, it's fake (1). Else real (0).
+            # Let's check config to be safe, but usually 0=Real, 1=Fake.
+            real_probs = probs[:, 0]
+            batch_predictions = (real_probs < FAKE_THRESHOLD).long()
 
-            all_preds.extend(predictions.cpu().numpy())
+            all_preds.extend(batch_predictions.cpu().numpy())
             all_labels.extend(labels_tensor.cpu().numpy())
 
     all_preds = np.array(all_preds)
