@@ -399,7 +399,9 @@ def load_fake_news_detector():
     
     print(f"Loading Model from {model_name_or_path}...")
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+        # Load the base tokenizer (bypasses corrupted tokenizer.json on the hub)
+        tokenizer = AutoTokenizer.from_pretrained("distilroberta-base")
+        # Load the trained weights
         model = AutoModelForSequenceClassification.from_pretrained(model_name_or_path)
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         model.to(device)

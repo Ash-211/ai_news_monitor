@@ -6,7 +6,7 @@ from pgvector.sqlalchemy import Vector
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 # Define base class for SQLAlchemy models
 Base = declarative_base()

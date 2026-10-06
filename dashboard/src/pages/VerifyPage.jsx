@@ -233,7 +233,7 @@ const VerifyPage = () => {
                   borderLeft: `4px solid ${getScoreColor(result.credibility_score)}`
                 }}>
                   <div className="verify-section-title">
-                    ?? AI Analysis
+                    🤖 AI Analysis
                   </div>
                   <p>{result.explanation}</p>
                 </div>
@@ -243,7 +243,7 @@ const VerifyPage = () => {
               {result.image_url && (
                 <div className="verify-section">
                   <div className="verify-section-title">
-                    ?? Extracted Image
+                    📸 Extracted Image
                   </div>
                   <img src={result.image_url} alt="Extracted" style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
                 </div>
@@ -253,7 +253,7 @@ const VerifyPage = () => {
               {result.keywords && result.keywords.length > 0 && (
                 <div className="verify-section">
                   <div className="verify-section-title">
-                    ??? Extracted Keywords
+                    🏷️ Extracted Keywords
                   </div>
                   <div className="verify-keywords">
                     {result.keywords.map((kw, i) => (
