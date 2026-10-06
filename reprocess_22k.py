@@ -1,8 +1,11 @@
 import time
-from src.ingestion.database import get_session, Article
+from src.ingestion.database import get_session, Article, init_db
 from src.intelligence.pipeline import run_intelligence_pipeline
 
 def reprocess_all():
+    # Upgrade schema first (adds the embedding column if it's missing)
+    init_db()
+    
     session = get_session()
     print("==================================================")
     print("  MASS REPROCESSING SCRIPT")
