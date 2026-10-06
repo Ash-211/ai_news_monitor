@@ -35,29 +35,54 @@ def call_local_fact_checker(prompt: str, json_mode: bool = True) -> str:
     import os
     from huggingface_hub import InferenceClient
     
+    sys_prompt = (
+        "You are a professional JSON fact-checking API. Only output valid JSON array exactly as requested." 
+        if json_mode 
+        else "You are a professional AI news verification assistant. You provide detailed, analytical reasoning."
+    )
+
+    # ── 1. Priority Provider: Google Gemini (Fast, high token limit) ──
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if gemini_key:
+        import requests
+        for g_model in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest"]:
+            try:
+                print(f"  [Fact-Checker] Querying Google Gemini ({g_model})...")
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={gemini_key}"
+                payload = {
+                    "contents": [{"parts": [{"text": f"{sys_prompt}\n\n{prompt}"}]}],
+                    "generationConfig": {"temperature": 0.1, "maxOutputTokens": 4096}
+                }
+                res = requests.post(url, json=payload, timeout=25)
+                if res.status_code == 200:
+                    data = res.json()
+                    candidates = data.get("candidates", [])
+                    if candidates and "parts" in candidates[0].get("content", {}):
+                        text = candidates[0]["content"]["parts"][0]["text"].strip()
+                        return text
+                else:
+                    print(f"  [Gemini API] {g_model} returned {res.status_code}. Trying next model...")
+            except Exception as e:
+                print(f"  [Gemini API] Error with {g_model}: {e}")
+
+    # ── 2. Secondary Fallback Provider: Hugging Face Serverless ──────
     token = os.environ.get("HF_TOKEN")
     if not token:
-        print("[Fact-Checker] HF_TOKEN not found in environment! Please add it.")
+        print("[Fact-Checker] Neither GEMINI_API_KEY nor HF_TOKEN found in environment!")
         return ""
-        
+
     candidate_models = [
         "Qwen/Qwen2.5-72B-Instruct",
         "meta-llama/Llama-3.2-3B-Instruct",
         "meta-llama/Meta-Llama-3-8B-Instruct",
         "mistralai/Mistral-7B-Instruct-v0.3"
     ]
-    
-    sys_prompt = (
-        "You are a professional JSON fact-checking API. Only output valid JSON array exactly as requested." 
-        if json_mode 
-        else "You are a professional AI news verification assistant. You provide detailed, analytical reasoning."
-    )
-    
+
     messages = [
         {"role": "system", "content": sys_prompt},
         {"role": "user", "content": prompt}
     ]
-    
+
     for model_id in candidate_models:
         try:
             print(f"  [Fact-Checker] Querying HF Serverless API with {model_id}...")
