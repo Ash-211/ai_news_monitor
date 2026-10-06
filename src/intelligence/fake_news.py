@@ -45,7 +45,7 @@ def call_local_fact_checker(prompt: str, json_mode: bool = True) -> str:
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if gemini_key:
         import requests
-        for g_model in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest"]:
+        for g_model in ["gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.8-flash"]:
             try:
                 print(f"  [Fact-Checker] Querying Google Gemini ({g_model})...")
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={gemini_key}"
