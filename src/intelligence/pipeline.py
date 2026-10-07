@@ -35,6 +35,9 @@ def run_intelligence_pipeline():
             (Article.is_fake == None) |
             (Article.keywords == None) |
             (Article.topic_cluster == None)
+        ).order_by(
+            Article.published_at.desc().nullslast(), 
+            Article.id.desc()
         ).limit(100).all()
 
         if not articles:
