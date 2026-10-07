@@ -31,49 +31,31 @@ LABEL_MAP = {
 FAKE_THRESHOLD = 0.40
 
 def call_local_fact_checker(prompt: str, json_mode: bool = True) -> str:
-    """Passes the RAG prompt to the Hugging Face Serverless API and returns its response."""
+    """Passes the RAG prompt to the custom Hugging Face Space API and returns its response."""
     import os
-    from huggingface_hub import InferenceClient
     
-    token = os.environ.get("HF_TOKEN")
-    if not token:
-        print("[Fact-Checker] HF_TOKEN not found in environment! Please add it.")
+    hf_space_url = os.environ.get("HF_SPACE_FACTCHECK_URL")
+    if not hf_space_url:
+        print("[Fact-Checker] HF_SPACE_FACTCHECK_URL not found in environment! Please add it.")
         return ""
         
-    candidate_models = [
-        "Qwen/Qwen2.5-72B-Instruct",
-        "meta-llama/Llama-3.2-3B-Instruct",
-        "meta-llama/Meta-Llama-3-8B-Instruct",
-        "mistralai/Mistral-7B-Instruct-v0.3"
-    ]
-    
-    sys_prompt = (
-        "You are a professional JSON fact-checking API. Only output valid JSON array exactly as requested." 
-        if json_mode 
-        else "You are a professional AI news verification assistant. You provide detailed, analytical reasoning."
-    )
-    
-    messages = [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": prompt}
-    ]
-    
-    for model_id in candidate_models:
-        try:
-            print(f"  [Fact-Checker] Querying HF Serverless API with {model_id}...")
-            client = InferenceClient(model_id, token=token)
-            response = client.chat_completion(
-                messages=messages,
-                max_tokens=4096,
-                temperature=0.1,
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"  [HF API] Error with {model_id}: {e}")
-            continue
-            
-    print("[Fact-Checker] All candidate models failed.")
-    return ""
+    try:
+        from gradio_client import Client
+        
+        print("  [Fact-Checker] Querying custom Hugging Face Space LLM...")
+        client = Client(hf_space_url)
+        
+        response = client.predict(
+            prompt=prompt,
+            api_name="/generate_text_internal"
+        )
+        return response.strip()
+    except ImportError:
+        print("[Fact-Checker] gradio-client not installed. Please run: pip install gradio-client")
+        return ""
+    except Exception as e:
+        print(f"[HF Space API] Error generating response: {e}")
+        return ""
 
 def download_fake_news_dataset():
     """
