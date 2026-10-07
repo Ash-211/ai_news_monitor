@@ -212,6 +212,14 @@ def run_intelligence_pipeline():
             print("  [SKIP] Fake news detector not trained yet. Skipping.")
             print("    Run: python -m src.intelligence.fake_news")
 
+        # ─── Commit Steps 1 to 4 Immediately ─────────────────────────
+        try:
+            session.commit()
+            print("  [DB] Successfully saved intelligence analysis results (Steps 1-4).")
+        except Exception as commit_err:
+            print(f"  [DB] Warning: early commit failed: {commit_err}")
+            session.rollback()
+
         # ─── Step 5: Automated Deepfake Detection ────────────────────
         print("\n[5] Running Automated Deepfake Detection on Article Images...")
         try:
@@ -222,13 +230,11 @@ def run_intelligence_pipeline():
                 check_trusted_source, check_exif_authenticity, check_ai_dimensions
             )
 
-            pending_images = session.query(Article).filter(
-                Article.image_status == 'pending',
-                Article.image_url.isnot(None),
-            ).all()
+            # Only analyze images for the current batch of articles
+            pending_images = [a for a in articles if a.image_url and a.image_status == 'pending']
 
             if not pending_images:
-                print("  No pending images to analyze.")
+                print("  No pending images in this batch to analyze.")
             else:
                 print(f"  Found {len(pending_images)} images pending deepfake analysis.")
                 api_calls_made = 0
@@ -375,7 +381,11 @@ def run_intelligence_pipeline():
             tb5.print_exc()
 
         # ─── Commit all updates ──────────────────────────────────────
-        session.commit()
+        try:
+            session.commit()
+        except Exception as final_commit_err:
+            print(f"  [DB] Final commit warning: {final_commit_err}")
+            session.rollback()
         print("\n" + "=" * 60)
         print(f"Intelligence pipeline complete. Updated {len(articles)} articles.")
         print("=" * 60)

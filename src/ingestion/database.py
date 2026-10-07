@@ -121,8 +121,19 @@ def get_engine():
     db_url = os.getenv('DATABASE_URL', '').strip()
 
     if db_url and db_url.startswith('postgresql'):
-        # Cloud PostgreSQL (Neon) — no SQLite-specific args needed
-        engine = create_engine(db_url, echo=False, pool_pre_ping=True)
+        # Cloud PostgreSQL (Neon) with auto-reconnect and keepalives to prevent SSL timeout drops
+        engine = create_engine(
+            db_url, 
+            echo=False, 
+            pool_pre_ping=True, 
+            pool_recycle=300,
+            connect_args={
+                'keepalives': 1,
+                'keepalives_idle': 30,
+                'keepalives_interval': 10,
+                'keepalives_count': 5
+            }
+        )
         return engine
 
     # Fallback: Local SQLite
