@@ -541,10 +541,19 @@ def generate_explanation(score: float, title: str = "", content: str = "",
     try:
         import json
         parsed = json.loads(explanation)
-        if isinstance(parsed, list) and len(parsed) > 0 and 'explanation' in parsed[0]:
-            explanation = parsed[0]['explanation']
-        elif isinstance(parsed, dict) and 'explanation' in parsed:
-            explanation = parsed['explanation']
+        if isinstance(parsed, list) and len(parsed) > 0:
+            item0 = parsed[0]
+            if 'explanation' in item0:
+                explanation = item0['explanation']
+            elif 'evidence' in item0:
+                ev = item0['evidence']
+                explanation = " ".join(ev) if isinstance(ev, list) else str(ev)
+        elif isinstance(parsed, dict):
+            if 'explanation' in parsed:
+                explanation = parsed['explanation']
+            elif 'evidence' in parsed:
+                ev = parsed['evidence']
+                explanation = " ".join(ev) if isinstance(ev, list) else str(ev)
     except:
         pass
         
@@ -715,19 +724,26 @@ ARTICLES:
         if text.startswith("```"): text = text[3:-3].strip()
         
         parsed_results = json.loads(text)
-        if len(parsed_results) == len(items):
+        if isinstance(parsed_results, list) and len(parsed_results) == len(items):
             for i, res in enumerate(parsed_results):
-                fact_score = float(res.get("fact_score", 0.5))
+                fact_score = float(res.get("fact_score", res.get("score", 0.5)))
                 local_score = items[i]["_local_score"]
                 
                 # Combine Model (33.3%) and Fact-Check (66.7%) for text-only phase
                 # (This becomes 25% Model, 50% Fact-Check, 25% Image later in the pipeline)
                 final_score = (local_score * 0.333) + (fact_score * 0.667)
                 
+                explanation = res.get("explanation")
+                if not explanation and "evidence" in res:
+                    ev = res["evidence"]
+                    explanation = " ".join(ev) if isinstance(ev, list) else str(ev)
+                if not explanation:
+                    explanation = "Verified by ensemble AI."
+
                 items[i]["analysis"] = {
                     "is_fake": bool(final_score < FAKE_THRESHOLD),
                     "credibility_score": round(final_score, 4),
-                    "explanation": res.get("explanation", "Verified by ensemble AI."),
+                    "explanation": explanation,
                     "verdict": "Potentially Misleading" if final_score < FAKE_THRESHOLD else "Likely Authentic",
                     "fact_score": fact_score,
                     "model_score": local_score
