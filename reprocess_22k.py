@@ -2,50 +2,65 @@ import time
 from src.ingestion.database import get_session, Article, init_db
 from src.intelligence.pipeline import run_intelligence_pipeline
 
-def reprocess_all():
-    # Upgrade schema first (adds the embedding column if it's missing)
+# Configure how many latest articles to reprocess
+TARGET_LIMIT = 200
+
+def reprocess_latest():
+    # Upgrade schema first (adds any missing columns like embedding)
     init_db()
     
     session = get_session()
     print("==================================================")
-    print("  MASS REPROCESSING SCRIPT")
+    print(f"  TARGETED REPROCESSING SCRIPT (Latest {TARGET_LIMIT} Articles)")
     print("==================================================")
-    print("Resetting old articles so they get picked up by the new LLM pipeline...")
     
-    # 1. Reset the intelligence fields for all articles
-    # We set is_fake = None so the pipeline sees them as "unprocessed"
-    session.query(Article).update({
+    # 1. Fetch only the latest TARGET_LIMIT articles by date
+    latest_rows = session.query(Article.id).order_by(
+        Article.published_at.desc().nullslast(), 
+        Article.id.desc()
+    ).limit(TARGET_LIMIT).all()
+    
+    target_ids = [r[0] for r in latest_rows]
+    print(f"Found {len(target_ids)} latest articles to reset for reprocessing...")
+
+    if not target_ids:
+        print("No articles found in database.")
+        session.close()
+        return
+
+    # 2. Reset intelligence fields ONLY for these latest articles
+    session.query(Article).filter(Article.id.in_(target_ids)).update({
         Article.is_fake: None, 
         Article.credibility_score: None, 
         Article.score_details: None,
-        Article.image_status: 'pending' # Reset image status so Deepfake scanner reruns
-    })
+        Article.image_status: 'pending' # Reset so Deepfake scanner reruns
+    }, synchronize_session=False)
     session.commit()
-    
-    total = session.query(Article).count()
-    print(f"Successfully reset {total} articles in the database.")
-    
-    # 2. Run the pipeline in safe chunks of 100
+    print(f"Successfully reset intelligence fields for the {len(target_ids)} latest articles.")
+
+    # 3. Run the pipeline in chunks of 100 until target_limit is reached
     processed = 0
-    while True:
+    total = len(target_ids)
+    while processed < total:
         print(f"\n--- Processing next chunk ({processed} out of {total} done) ---")
         
-        # run_intelligence_pipeline() now safely limits itself to 100 articles
         count = run_intelligence_pipeline()
-        
         if count == 0:
-            print("\nNo more articles to process!")
+            print("\nNo more articles pending processing!")
             break
             
         processed += count
+        if processed >= total:
+            print(f"\nReached target limit of {total} articles!")
+            break
+
+        print("Cooling down for 2 seconds...")
+        time.sleep(2)
         
-        # Give Hugging Face a 3-second cooldown to avoid Rate Limit (429) bans
-        print("Cooling down for 3 seconds to respect Hugging Face Free API limits...")
-        time.sleep(3)
-        
+    session.close()
     print(f"\n==================================================")
-    print(f"  Finished reprocessing all {total} articles with new 50/25/25 logic!")
+    print(f"  Finished reprocessing {processed} latest articles successfully!")
     print(f"==================================================")
     
 if __name__ == "__main__":
-    reprocess_all()
+    reprocess_latest()
