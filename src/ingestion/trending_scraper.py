@@ -455,8 +455,10 @@ def analyze_trending_item(item: Dict, model=None, tokenizer=None) -> Dict:
         verification = None
         if item.get("platform") != "gnews":
             cv = cross_validate_claim(title)
-            if cv["verified"]:
-                verification = f"Cross-validated by {cv['count']} trusted sources including {', '.join(cv['sources'][:2])}."
+            if cv.get("verified"):
+                sources = cv.get("sources", [])
+                source_str = f" including {', '.join(sources[:2])}" if sources else ""
+                verification = f"Cross-validated by {cv.get('count', len(sources))} trusted sources{source_str}."
             else:
                 verification = "Claim could not be cross-validated by any major news outlet."
                 
