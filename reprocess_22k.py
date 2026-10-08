@@ -2,8 +2,8 @@ import time
 from src.ingestion.database import get_session, Article, init_db
 from src.intelligence.pipeline import run_intelligence_pipeline
 
-# Configure how many latest articles to reprocess
-TARGET_LIMIT = 200
+# Configure how many latest articles to reprocess (set to 10 for quick testing)
+TARGET_LIMIT = 10
 
 def reprocess_latest():
     # Upgrade schema first (adds any missing columns like embedding)
@@ -38,13 +38,13 @@ def reprocess_latest():
     session.commit()
     print(f"Successfully reset intelligence fields for the {len(target_ids)} latest articles.")
 
-    # 3. Run the pipeline in chunks of 100 until target_limit is reached
+    # 3. Run the pipeline in chunks until target_limit is reached
     processed = 0
     total = len(target_ids)
     while processed < total:
         print(f"\n--- Processing next chunk ({processed} out of {total} done) ---")
         
-        count = run_intelligence_pipeline()
+        count = run_intelligence_pipeline(batch_size=TARGET_LIMIT)
         if count == 0:
             print("\nNo more articles pending processing!")
             break

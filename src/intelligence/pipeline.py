@@ -19,7 +19,7 @@ from src.intelligence.topic_modeling import (
 
 
 
-def run_intelligence_pipeline():
+def run_intelligence_pipeline(batch_size: int = 100):
     """
     Main entry point for the Intelligence Layer.
     Fetches articles missing intelligence fields and processes them in batch.
@@ -29,7 +29,6 @@ def run_intelligence_pipeline():
     try:
         # Fetch articles that need processing
         # An article needs processing if ANY intelligence field is NULL
-        # LIMIT 100 to prevent crashing the Hugging Face API with massive context windows
         articles = session.query(Article).filter(
             (Article.category == None) |
             (Article.is_fake == None) |
@@ -38,7 +37,7 @@ def run_intelligence_pipeline():
         ).order_by(
             Article.published_at.desc().nullslast(), 
             Article.id.desc()
-        ).limit(100).all()
+        ).limit(batch_size).all()
 
         if not articles:
             print("No articles pending intelligence processing.")
