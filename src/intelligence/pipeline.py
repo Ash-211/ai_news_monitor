@@ -9,6 +9,12 @@ Fetches unprocessed articles from the database and runs all Layer 3 modules:
 (Proposal Section 5.3 – 5.5)
 """
 
+import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 from src.ingestion.database import get_session, Article
 from src.intelligence.classifier import classify_batch, load_classifier
 from src.intelligence.fake_news import detect_batch, load_fake_news_detector
