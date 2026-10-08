@@ -11,10 +11,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ─── API Configuration ─────────────────────────────────────────────
-NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
+# NewsAPI has been disabled as requested to avoid rate limits and errors
+NEWSAPI_KEY = None
 GOOGLE_FACTCHECK_KEY = os.getenv("GOOGLE_FACTCHECK_KEY")
 
-NEWSAPI_SEARCH_URL = "https://newsapi.org/v2/everything"
 GOOGLE_FACTCHECK_URL = "https://factchecktools.googleapis.com/v1alpha1/claims:search"
 
 
@@ -46,77 +46,15 @@ def _extract_search_keywords(title: str, max_words: int = 6) -> str:
 
 def cross_reference_news(title: str, api_key: str = None) -> dict:
     """
-    Searches NewsAPI to see how many other outlets reported a similar story.
-    
-    Returns:
-        {
-            "score": float (0.0 - 1.0),
-            "total_results": int,
-            "matching_sources": list[str],
-            "status": "ok" | "error" | "skipped"
-        }
+    NewsAPI cross-referencing is disabled to prevent 429 rate limit errors.
+    Returns neutral score.
     """
-    key = api_key or NEWSAPI_KEY
-    if not key:
-        return {"score": 0.5, "total_results": 0, "matching_sources": [], "status": "skipped"}
-    
-    query = _extract_search_keywords(title)
-    if not query or len(query) < 5:
-        return {"score": 0.5, "total_results": 0, "matching_sources": [], "status": "skipped"}
-    
-    try:
-        response = requests.get(NEWSAPI_SEARCH_URL, params={
-            "q": query,
-            "language": "en",
-            "sortBy": "relevancy",
-            "pageSize": 10,
-            "apiKey": key
-        }, timeout=5)
-        
-        if response.status_code != 200:
-            print(f"  [FactCheck] NewsAPI error: {response.status_code}")
-            return {"score": 0.5, "total_results": 0, "matching_sources": [], "status": "error"}
-        
-        data = response.json()
-        total = data.get("totalResults", 0)
-        articles = data.get("articles", [])
-        
-        # Extract unique source names
-        sources = list(set(
-            a.get("source", {}).get("name", "Unknown") 
-            for a in articles if a.get("source")
-        ))
-        
-        # Scoring logic:
-        # 0 results   → 0.2 (suspicious, nobody else reports this)
-        # 1-2 results → 0.4 (weak corroboration)
-        # 3-5 results → 0.6 (moderate corroboration)
-        # 5-10 results→ 0.8 (strong corroboration)
-        # 10+ results → 1.0 (widely reported)
-        if total == 0:
-            score = 0.2
-        elif total <= 2:
-            score = 0.4
-        elif total <= 5:
-            score = 0.6
-        elif total <= 10:
-            score = 0.8
-        else:
-            score = 1.0
-        
-        return {
-            "score": score,
-            "total_results": total,
-            "matching_sources": sources[:5],  # Cap at 5 for payload size
-            "status": "ok"
-        }
-    
-    except requests.exceptions.Timeout:
-        print("  [FactCheck] NewsAPI timeout")
-        return {"score": 0.5, "total_results": 0, "matching_sources": [], "status": "error"}
-    except Exception as e:
-        print(f"  [FactCheck] NewsAPI exception: {e}")
-        return {"score": 0.5, "total_results": 0, "matching_sources": [], "status": "error"}
+    return {
+        "score": 0.5,
+        "total_results": 0,
+        "matching_sources": [],
+        "status": "disabled"
+    }
 
 
 def check_fact_claim(title: str, api_key: str = None) -> dict:
@@ -205,37 +143,27 @@ def check_fact_claim(title: str, api_key: str = None) -> dict:
 
 def verify_article(title: str, newsapi_key: str = None, google_key: str = None) -> dict:
     """
-    Orchestrator: Runs both NewsAPI cross-referencing and Google Fact Check,
-    combines the results into a single verification_score.
+    Orchestrator: Runs Google Fact Check claim validation.
+    (NewsAPI has been removed to avoid rate limits and 429 errors).
     
     Returns:
         {
             "verification_score": float (0.0 - 1.0),
-            "cross_reference": { ... },   # NewsAPI results
+            "cross_reference": { ... },   # Disabled placeholder
             "fact_check": { ... },         # Google results
         }
     """
-    cross_ref = cross_reference_news(title, api_key=newsapi_key)
     fact_check = check_fact_claim(title, api_key=google_key)
     
-    # Combine scores
-    # If both APIs returned data, weight equally
-    # If only one returned data, use that one entirely
-    cross_ok = cross_ref["status"] == "ok"
-    fact_ok = fact_check["status"] == "ok" and fact_check["claims_found"] > 0
-    
-    if cross_ok and fact_ok:
-        verification_score = (0.5 * cross_ref["score"]) + (0.5 * fact_check["score"])
-    elif cross_ok:
-        verification_score = cross_ref["score"]
-    elif fact_ok:
+    # If Google Fact Check found verified claims, use its score; otherwise neutral 0.5
+    if fact_check.get("status") == "ok" and fact_check.get("claims_found", 0) > 0:
         verification_score = fact_check["score"]
     else:
         verification_score = 0.5  # Neutral fallback
     
     return {
         "verification_score": round(verification_score, 4),
-        "cross_reference": cross_ref,
+        "cross_reference": {"score": 0.5, "status": "disabled"},
         "fact_check": fact_check
     }
 

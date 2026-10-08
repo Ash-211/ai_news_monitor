@@ -128,79 +128,69 @@ def run_intelligence_pipeline():
         except Exception as e:
             print(f"  [WARN] Failed to generate embeddings: {e}")
 
+        # Commit Steps 1 to 3b immediately so they are safely saved
+        session.commit()
+
         # ─── Step 4: Fake News Detection ─────────────────────────────
         print("\n[4/4] Running Fake News Detection...")
         fake_news_model, fake_news_tokenizer = load_fake_news_detector()
+        
+        # Prepare in-memory batch items with IDs
+        batch_items = []
+        for article in articles:
+            batch_items.append({
+                "id": article.id,
+                "title": article.title or '',
+                "content": article.raw_content or article.clean_content or '',
+                "source": article.source or '',
+                "is_fake": article.is_fake
+            })
+
+        # Close DB session before heavy external AI/API calls so connection doesn't sit idle and get dropped
+        session.close()
+        session = None
+
         if fake_news_model and fake_news_tokenizer:
-            # Build list of dicts matching detect_batch(items: list[dict]) signature
-            batch_items = []
-            for article in articles:
-                batch_items.append({
-                    "title": article.title or '',
-                    "content": article.raw_content or article.clean_content or '',
-                    "source": article.source or '',
-                })
-                
             analyzed_items = detect_batch(
                 batch_items,
                 model=fake_news_model, 
                 tokenizer=fake_news_tokenizer,
             )
-            
-            import json
-            for i, article in enumerate(articles):
-                if article.is_fake is None:
-                    analysis = analyzed_items[i].get("analysis", {})
-                    article.is_fake = analysis.get("is_fake", None)
-                    article.credibility_score = analysis.get("credibility_score", None)
-                    article.score_details = json.dumps({
-                        "explanation_text": analysis.get("explanation", ""),
-                        "verdict": analysis.get("verdict", ""),
-                        "fact_score": analysis.get("fact_score", 0.5),
-                        "model_score": analysis.get("model_score", 0.5)
-                    })
-            print(f"  [OK] Analyzed {len(articles)} articles for credibility.")
+            print(f"  [OK] Analyzed {len(batch_items)} articles for credibility.")
             
             # ─── Step 4b: External Fact-Check for "unsure" articles ────
             try:
                 from src.intelligence.fact_checker import verify_article
                 
-                unsure_articles = [
-                    a for a in articles 
-                    if a.credibility_score is not None and 0.3 <= a.credibility_score <= 0.6
+                unsure_items = [
+                    item for item in batch_items 
+                    if item.get("analysis", {}).get("credibility_score") is not None 
+                    and 0.3 <= item["analysis"]["credibility_score"] <= 0.6
                 ]
                 
-                if unsure_articles:
-                    print(f"\n  [4b] Running external fact-check on {len(unsure_articles)} 'unsure' articles...")
+                if unsure_items:
+                    # Cap at 5 to protect NewsAPI daily quota and prevent 429 errors
+                    sample_unsure = unsure_items[:5]
+                    print(f"\n  [4b] Running external fact-check on {len(sample_unsure)} 'unsure' articles...")
                     verified_count = 0
-                    for article in unsure_articles:
-                        title = article.title or ''
-                        
+                    for item in sample_unsure:
+                        title = item.get("title") or ''
                         verification = verify_article(title)
                         v_score = verification.get("verification_score", 0.5)
                         
                         if v_score != 0.5:
-                            # Merge external verification with LLM fact score
-                            try:
-                                details = json.loads(article.score_details) if article.score_details else {}
-                            except:
-                                details = {}
-                                
-                            llm_fact = details.get("fact_score", 0.5)
-                            model_score = details.get("model_score", 0.5)
+                            analysis = item["analysis"]
+                            llm_fact = analysis.get("fact_score", 0.5)
+                            model_score = analysis.get("model_score", 0.5)
                             
-                            # Average the two fact-checking sources
                             new_fact_score = (llm_fact + v_score) / 2.0
-                            
-                            # Recalculate combined score (2/3 fact, 1/3 model)
                             new_final_score = (new_fact_score * 0.667) + (model_score * 0.333)
                             
                             from src.intelligence.fake_news import FAKE_THRESHOLD
-                            article.is_fake = bool(new_final_score < FAKE_THRESHOLD)
-                            article.credibility_score = new_final_score
-                            
-                            details["fact_score"] = new_fact_score
-                            article.score_details = json.dumps(details)
+                            analysis["is_fake"] = bool(new_final_score < FAKE_THRESHOLD)
+                            analysis["credibility_score"] = round(new_final_score, 4)
+                            analysis["fact_score"] = new_fact_score
+                            analysis["verdict"] = "Potentially Misleading" if analysis["is_fake"] else "Likely Authentic"
                             verified_count += 1
                     print(f"  [OK] Externally verified {verified_count} articles.")
                 else:
@@ -212,7 +202,26 @@ def run_intelligence_pipeline():
             print("  [SKIP] Fake news detector not trained yet. Skipping.")
             print("    Run: python -m src.intelligence.fake_news")
 
-        # ─── Commit Steps 1 to 4 Immediately ─────────────────────────
+        # ─── Reconnect Fresh DB Session and Commit Steps 1 to 4 ──────
+        import json
+        session = get_session()
+        article_ids = [item["id"] for item in batch_items]
+        articles = session.query(Article).filter(Article.id.in_(article_ids)).all()
+        articles_map = {a.id: a for a in articles}
+
+        for item in batch_items:
+            art = articles_map.get(item["id"])
+            if art and "analysis" in item:
+                analysis = item["analysis"]
+                art.is_fake = analysis.get("is_fake")
+                art.credibility_score = analysis.get("credibility_score")
+                art.score_details = json.dumps({
+                    "explanation_text": analysis.get("explanation", ""),
+                    "verdict": analysis.get("verdict", ""),
+                    "fact_score": analysis.get("fact_score", 0.5),
+                    "model_score": analysis.get("model_score", 0.5)
+                })
+
         try:
             session.commit()
             print("  [DB] Successfully saved intelligence analysis results (Steps 1-4).")
@@ -402,13 +411,21 @@ def run_intelligence_pipeline():
         return len(articles)
 
     except Exception as e:
-        session.rollback()
+        if session:
+            try:
+                session.rollback()
+            except Exception:
+                pass
         print(f"\nERROR in intelligence pipeline: {e}")
         import traceback
         traceback.print_exc()
         return 0
     finally:
-        session.close()
+        if session:
+            try:
+                session.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
