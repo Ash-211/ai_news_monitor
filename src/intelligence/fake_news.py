@@ -30,8 +30,11 @@ LABEL_MAP = {
 # Threshold below which an article is considered fake
 FAKE_THRESHOLD = 0.40
 
+_HF_SPACE_CLIENT = None
+
 def call_local_fact_checker(prompt: str, json_mode: bool = True) -> str:
     """Passes the RAG prompt to the custom Hugging Face Space API and returns its response."""
+    global _HF_SPACE_CLIENT
     import os
     
     hf_space_url = os.environ.get("HF_SPACE_FACTCHECK_URL")
@@ -42,10 +45,11 @@ def call_local_fact_checker(prompt: str, json_mode: bool = True) -> str:
     try:
         from gradio_client import Client
         
-        print("  [Fact-Checker] Querying custom Hugging Face Space LLM...")
-        client = Client(hf_space_url)
+        if _HF_SPACE_CLIENT is None:
+            print("  [Fact-Checker] Connecting to custom Hugging Face Space LLM...")
+            _HF_SPACE_CLIENT = Client(hf_space_url)
         
-        response = client.predict(
+        response = _HF_SPACE_CLIENT.predict(
             prompt=prompt,
             api_name="/generate_text_internal"
         )
@@ -55,6 +59,8 @@ def call_local_fact_checker(prompt: str, json_mode: bool = True) -> str:
         return ""
     except Exception as e:
         print(f"[HF Space API] Error generating response: {e}")
+        # Reset client on error so next attempt reconnects cleanly
+        _HF_SPACE_CLIENT = None
         return ""
 
 def download_fake_news_dataset():
@@ -541,10 +547,19 @@ def generate_explanation(score: float, title: str = "", content: str = "",
     try:
         import json
         parsed = json.loads(explanation)
-        if isinstance(parsed, list) and len(parsed) > 0 and 'explanation' in parsed[0]:
-            explanation = parsed[0]['explanation']
-        elif isinstance(parsed, dict) and 'explanation' in parsed:
-            explanation = parsed['explanation']
+        if isinstance(parsed, list) and len(parsed) > 0:
+            item0 = parsed[0]
+            if 'explanation' in item0:
+                explanation = item0['explanation']
+            elif 'evidence' in item0:
+                ev = item0['evidence']
+                explanation = " ".join(ev) if isinstance(ev, list) else str(ev)
+        elif isinstance(parsed, dict):
+            if 'explanation' in parsed:
+                explanation = parsed['explanation']
+            elif 'evidence' in parsed:
+                ev = parsed['evidence']
+                explanation = " ".join(ev) if isinstance(ev, list) else str(ev)
     except:
         pass
         
@@ -600,17 +615,22 @@ def detect_fake_news_local_only(title: str, content: str, model=None, tokenizer=
         with torch.no_grad():
             outputs = model(**inputs)
             probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)[0]
-            id2label = getattr(model.config, 'id2label', {0: 'FAKE', 1: 'REAL'})
+            id2label = getattr(model.config, 'id2label', {})
             prob_dict = {str(v).upper(): probabilities[k].item() for k, v in id2label.items()}
             
             if "REAL" in prob_dict:
                 real_probability = prob_dict["REAL"]
             elif "TRUE" in prob_dict:
                 real_probability = prob_dict["TRUE"]
+            elif "LABEL_0" in prob_dict:
+                # 0 is Authentic / Real in distilbert_fake_news
+                real_probability = prob_dict["LABEL_0"]
             elif "FAKE" in prob_dict:
                 real_probability = 1.0 - prob_dict["FAKE"]
+            elif "LABEL_1" in prob_dict:
+                real_probability = 1.0 - prob_dict["LABEL_1"]
             else:
-                real_probability = probabilities[1].item() if len(probabilities) > 1 else 0.5
+                real_probability = probabilities[0].item() if len(probabilities) > 0 else 0.5
                 
     return max(0.01, min(1.0, real_probability))
 
@@ -648,50 +668,44 @@ def detect_fake_news(title: str, content: str, model=None, tokenizer=None, sourc
     return is_fake, final_score, breakdown
 
 
-def detect_batch(items: list, model=None, tokenizer=None) -> list:
-    """
-    Batch RAG Processing: Runs linguistic scoring locally for all items, 
-    then uses a single Llama LLM call to process all items at once to save API calls.
-    Returns: List of modified items with ["analysis"] attached.
-    """
+def _process_batch_chunk(items: list, model=None, tokenizer=None) -> list:
+    """Processes a mini-batch chunk of up to 10 articles with the Space LLM."""
     if not items:
-        return []
+        return items
         
-    # 1. Gather all local scores and build the batch prompt
     prompt_lines = []
     for i, item in enumerate(items):
         title = item.get("title", "")
         content = item.get("content", title)
+        source = item.get("source", "")
         local_score = detect_fake_news_local_only(title, content, model, tokenizer)
-        
-        # Save local score on item temporarily
         item["_local_score"] = local_score
         
-        evidence = item.get("verification", "No evidence fetched.")
-        
+        snippet = (content[:250] + '...') if len(content) > 250 else content
         prompt_lines.append(f"--- Article [{i}] ---")
         prompt_lines.append(f"Title: {title}")
-        prompt_lines.append(f"Fetched RAG Evidence: {evidence}\n")
+        if source:
+            prompt_lines.append(f"Source: {source}")
+        if snippet:
+            prompt_lines.append(f"Content: {snippet}\n")
 
     batch_text = "\n".join(prompt_lines)
-    
-    prompt = f"""
-You are an elite journalistic fact-checker. I am providing you with {len(items)} articles.
-For each article, you are given the 'Fetched RAG Evidence' (live headlines from verified news sources).
+    prompt = f"""You are an expert journalistic news credibility analyst. I am providing you with {len(items)} news articles.
+Analyze each article's title, publication source, and content snippet for factual credibility, reporting tone, and plausibility.
 
 TASK:
-You must generate a 'fact_score' (0.0 to 1.0) based SOLELY on how well the Fetched Evidence supports the article's claims.
-- 1.0 = Strong evidence confirms the claim.
-- 0.5 = No evidence found, unverified, or neutral.
-- 0.0 = Evidence directly contradicts the claim (proven fake).
+For each article, generate a 'fact_score' (0.0 to 1.0) and a UNIQUE 1-2 sentence explanation tailored specifically to that article:
+- 0.70 to 1.00: Credible, standard news reporting from established sources, plausible events.
+- 0.40 to 0.69: Neutral, unverified, or developing news.
+- 0.00 to 0.39: Sensationalist, conspiracy, demonstrably false, or fabricated claims.
 
-Your explanation MUST explicitly state what exact facts were confirmed or contradicted by the evidence.
+CRITICAL REQUIREMENT:
+Each explanation MUST explicitly mention the specific entities, subject matter, and publication source of that individual article. Do NOT repeat identical boilerplate phrases across articles.
 
-You MUST return a JSON array containing EXACTLY {len(items)} objects in the identical order as the input.
+You MUST return a valid JSON array containing EXACTLY {len(items)} objects in the identical order as the input.
 Format:
 [
-  {{"fact_score": 0.85, "explanation": "Evidence from Reuters confirms that [Fact X] happened."}},
-  ...
+  {{"fact_score": 0.85, "explanation": "Specific explanation discussing the article's subject and source."}}
 ]
 Do not return any markdown wrappers, just the raw JSON array.
 
@@ -699,46 +713,43 @@ ARTICLES:
 {batch_text}
 """
     response_text = call_local_fact_checker(prompt)
-    results = []
-    
     try:
-        import json
+        import json, re
         text = response_text.strip()
-        
-        # Regex to robustly extract JSON from potential markdown wrapping
-        import re
         match = re.search(r'\[\s*\{.*\}\s*\]', text, re.DOTALL)
         if match:
             text = match.group(0)
-            
         if text.startswith("```json"): text = text[7:-3].strip()
         if text.startswith("```"): text = text[3:-3].strip()
         
         parsed_results = json.loads(text)
-        if len(parsed_results) == len(items):
+        if isinstance(parsed_results, list) and len(parsed_results) == len(items):
             for i, res in enumerate(parsed_results):
-                fact_score = float(res.get("fact_score", 0.5))
-                local_score = items[i]["_local_score"]
-                
-                # Combine Model (33.3%) and Fact-Check (66.7%) for text-only phase
-                # (This becomes 25% Model, 50% Fact-Check, 25% Image later in the pipeline)
+                fact_score = float(res.get("fact_score", res.get("score", 0.5)))
+                local_score = items[i].get("_local_score", 0.5)
                 final_score = (local_score * 0.333) + (fact_score * 0.667)
-                
+                explanation = res.get("explanation")
+                if not explanation and "evidence" in res:
+                    ev = res["evidence"]
+                    explanation = " ".join(ev) if isinstance(ev, list) else str(ev)
+                if not explanation:
+                    explanation = "Verified by ensemble AI."
+
                 items[i]["analysis"] = {
                     "is_fake": bool(final_score < FAKE_THRESHOLD),
                     "credibility_score": round(final_score, 4),
-                    "explanation": res.get("explanation", "Verified by ensemble AI."),
+                    "explanation": explanation,
                     "verdict": "Potentially Misleading" if final_score < FAKE_THRESHOLD else "Likely Authentic",
                     "fact_score": fact_score,
                     "model_score": local_score
                 }
-                # cleanup
-                del items[i]["_local_score"]
+                if "_local_score" in items[i]:
+                    del items[i]["_local_score"]
             return items
     except Exception as e:
-        print(f"[Batch Ensemble] Failed to parse JSON or Llama error: {e}. Falling back to iterative processing.")
-    
-    # ── Fallback if API fails or returns bad JSON ──
+        print(f"[Batch Ensemble Chunk] Chunk JSON error: {e}. Falling back to iterative processing for this chunk.")
+
+    # Fallback for this chunk only
     for item in items:
         title = item.get("title", "")
         content = item.get("content", title)
@@ -758,7 +769,24 @@ ARTICLES:
             "fact_score": breakdown.get("fact_score", 0.5),
             "model_score": breakdown.get("model_score", 0.5)
         }
-        if "_local_score" in item: del item["_local_score"]
+        if "_local_score" in item:
+            del item["_local_score"]
+            
+    return items
+
+
+def detect_batch(items: list, model=None, tokenizer=None, chunk_size: int = 10) -> list:
+    """
+    Batch RAG Processing: Runs linguistic scoring locally for all items, 
+    then uses chunked Llama LLM calls (10 items per call) to avoid JSON truncation and speed up processing.
+    Returns: List of modified items with ["analysis"] attached.
+    """
+    if not items:
+        return []
+        
+    for start_idx in range(0, len(items), chunk_size):
+        sub_items = items[start_idx:start_idx + chunk_size]
+        _process_batch_chunk(sub_items, model=model, tokenizer=tokenizer)
         
     return items
 
