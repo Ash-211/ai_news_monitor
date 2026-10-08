@@ -694,15 +694,18 @@ def _process_batch_chunk(items: list, model=None, tokenizer=None) -> list:
 Analyze each article's title, publication source, and content snippet for factual credibility, reporting tone, and plausibility.
 
 TASK:
-Generate a 'fact_score' (0.0 to 1.0) and a brief 1-2 sentence explanation for each article:
+For each article, generate a 'fact_score' (0.0 to 1.0) and a UNIQUE 1-2 sentence explanation tailored specifically to that article:
 - 0.70 to 1.00: Credible, standard news reporting from established sources, plausible events.
 - 0.40 to 0.69: Neutral, unverified, or developing news.
 - 0.00 to 0.39: Sensationalist, conspiracy, demonstrably false, or fabricated claims.
 
+CRITICAL REQUIREMENT:
+Each explanation MUST explicitly mention the specific entities, subject matter, and publication source of that individual article. Do NOT repeat identical boilerplate phrases across articles.
+
 You MUST return a valid JSON array containing EXACTLY {len(items)} objects in the identical order as the input.
 Format:
 [
-  {{"fact_score": 0.85, "explanation": "Standard news report from reputable publisher about verified public events."}}
+  {{"fact_score": 0.85, "explanation": "Specific explanation discussing the article's subject and source."}}
 ]
 Do not return any markdown wrappers, just the raw JSON array.
 
