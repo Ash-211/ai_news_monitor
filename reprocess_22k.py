@@ -9,8 +9,8 @@ if hasattr(sys.stderr, 'reconfigure'):
 from src.ingestion.database import get_session, Article, init_db
 from src.intelligence.pipeline import run_intelligence_pipeline
 
-# Configure how many latest articles to reprocess (set to 10 for quick testing)
-TARGET_LIMIT = 10
+# Configure how many latest articles to reprocess
+TARGET_LIMIT = 100
 
 def reprocess_latest():
     # Upgrade schema first (adds any missing columns like embedding)
