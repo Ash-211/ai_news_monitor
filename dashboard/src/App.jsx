@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
+import { Search } from 'lucide-react';
 import Sidebar from './components/Sidebar';
+import Navbar from './components/Navbar';
 import ArticleCard from './components/ArticleCard';
 import DiscordLanding from './pages/DiscordLanding';
 import WhatsAppLanding from './pages/WhatsAppLanding';
@@ -13,10 +15,23 @@ function App() {
   const [articles, setArticles] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [currentFilter, setCurrentFilter] = useState('all'); // all, real, fake, or category
+  const [currentFilter, setCurrentFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
+  
+  // Dark mode is default.
+  const [isLightMode, setIsLightMode] = useState(false);
+
+  useEffect(() => {
+    if (isLightMode) {
+      document.body.classList.add('light-mode');
+    } else {
+      document.body.classList.remove('light-mode');
+    }
+  }, [isLightMode]);
+
+  const toggleTheme = () => setIsLightMode(!isLightMode);
 
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -50,7 +65,6 @@ function App() {
       setPage(targetPage);
       setTotalPages(data.pages || 0);
       
-      // Auto-scroll to top when page changes
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
       console.error("Failed to fetch articles", err);
@@ -77,7 +91,6 @@ function App() {
     }
   };
 
-  // Helper to render page buttons
   const renderPagination = () => {
     if (totalPages <= 1) return null;
 
@@ -96,13 +109,13 @@ function App() {
           disabled={page === 1}
           onClick={() => handlePageChange(page - 1)}
         >
-          &larr; Previous
+          &larr; Prev
         </button>
         
         {start > 1 && (
           <>
             <button className="page-number" onClick={() => handlePageChange(1)}>1</button>
-            {start > 2 && <span className="page-dots">...</span>}
+            {start > 2 && <span className="page-dots" style={{ color: 'var(--text-muted)' }}>...</span>}
           </>
         )}
 
@@ -118,7 +131,7 @@ function App() {
 
         {end < totalPages && (
           <>
-            {end < totalPages - 1 && <span className="page-dots">...</span>}
+            {end < totalPages - 1 && <span className="page-dots" style={{ color: 'var(--text-muted)' }}>...</span>}
             <button className="page-number" onClick={() => handlePageChange(totalPages)}>{totalPages}</button>
           </>
         )}
@@ -136,6 +149,7 @@ function App() {
 
   return (
     <div className="app-container">
+      <Navbar isLightMode={isLightMode} toggleTheme={toggleTheme} />
       <Sidebar stats={stats} currentFilter={currentFilter} setCurrentFilter={setCurrentFilter} />
       
       <main className="main-content">
@@ -144,23 +158,23 @@ function App() {
             <>
               <div className="stats-grid">
                 <div className="stat-card">
-                  <span className="stat-label">Total Articles Analyzed</span>
+                  <span className="stat-label">Total Analyzed</span>
                   <span className="stat-value">{stats?.total_articles || 0}</span>
                 </div>
                 <div className="stat-card">
-                  <span className="stat-label">Verified Real News</span>
+                  <span className="stat-label">Verified Authentic</span>
                   <span className="stat-value" style={{ color: 'var(--success)' }}>{stats?.real_articles || 0}</span>
                 </div>
                 <div className="stat-card">
-                  <span className="stat-label">Detected Fake News</span>
+                  <span className="stat-label">Flagged Misinfo</span>
                   <span className="stat-value" style={{ color: 'var(--danger)' }}>{stats?.fake_articles || 0}</span>
                 </div>
               </div>
 
               <div className="articles-header">
                 <h2>
-                  {currentFilter === 'all' && 'Intelligence Feed'}
-                  {currentFilter === 'real' && 'Verified Authentic News'}
+                  {currentFilter === 'all' && 'Global Intelligence Feed'}
+                  {currentFilter === 'real' && 'Verified Authentic Intelligence'}
                   {currentFilter === 'fake' && 'Flagged Misinformation'}
                   {!['all', 'real', 'fake'].includes(currentFilter) && `Top Headlines: ${currentFilter}`}
                 </h2>
@@ -173,9 +187,7 @@ function App() {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
-                  <svg className="search-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                  </svg>
+                  <Search className="search-icon" size={16} />
                 </div>
               </div>
 
@@ -183,20 +195,20 @@ function App() {
                 <div className="articles-grid">
                   {[...Array(6)].map((_, i) => (
                     <div className="skeleton-card" key={i}>
-                      <div className="skeleton-header">
-                        <div className="skeleton-line skeleton-shimmer" style={{ width: '40%', height: '12px' }} />
-                        <div className="skeleton-line skeleton-shimmer" style={{ width: '25%', height: '28px', borderRadius: '10px' }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                        <div className="skeleton-shimmer" style={{ width: '40%', height: '12px' }} />
+                        <div className="skeleton-shimmer" style={{ width: '25%', height: '24px', borderRadius: '6px' }} />
                       </div>
-                      <div className="skeleton-body">
-                        <div className="skeleton-line skeleton-shimmer" style={{ width: '90%', height: '18px' }} />
-                        <div className="skeleton-line skeleton-shimmer" style={{ width: '75%', height: '18px' }} />
-                        <div className="skeleton-line skeleton-shimmer" style={{ width: '100%', height: '14px', marginTop: '12px' }} />
-                        <div className="skeleton-line skeleton-shimmer" style={{ width: '85%', height: '14px' }} />
-                        <div className="skeleton-line skeleton-shimmer" style={{ width: '60%', height: '14px' }} />
+                      <div>
+                        <div className="skeleton-shimmer" style={{ width: '90%', height: '18px', marginBottom: '8px' }} />
+                        <div className="skeleton-shimmer" style={{ width: '75%', height: '18px', marginBottom: '16px' }} />
+                        <div className="skeleton-shimmer" style={{ width: '100%', height: '14px', marginBottom: '6px' }} />
+                        <div className="skeleton-shimmer" style={{ width: '85%', height: '14px', marginBottom: '6px' }} />
+                        <div className="skeleton-shimmer" style={{ width: '60%', height: '14px' }} />
                       </div>
-                      <div className="skeleton-footer">
-                        <div className="skeleton-line skeleton-shimmer" style={{ width: '30%', height: '12px' }} />
-                        <div className="skeleton-line skeleton-shimmer" style={{ width: '20%', height: '30px', borderRadius: '10px' }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--border-light)' }}>
+                        <div className="skeleton-shimmer" style={{ width: '30%', height: '12px' }} />
+                        <div className="skeleton-shimmer" style={{ width: '20%', height: '20px', borderRadius: '4px' }} />
                       </div>
                     </div>
                   ))}
@@ -209,8 +221,8 @@ function App() {
                         <ArticleCard key={article.id} article={article} />
                       ))
                     ) : (
-                      <div style={{ textAlign: 'center', padding: '100px', color: 'var(--text-muted)', width: '100%' }}>
-                        <p style={{ fontSize: '1.2rem', fontWeight: '500' }}>No articles found for the selected criteria.</p>
+                      <div style={{ textAlign: 'center', padding: '100px', color: 'var(--text-muted)', width: '100%', gridColumn: '1 / -1' }}>
+                        <p style={{ fontSize: '1.2rem', fontWeight: '500' }}>No intelligence found for the selected criteria.</p>
                       </div>
                     )}
                   </div>
