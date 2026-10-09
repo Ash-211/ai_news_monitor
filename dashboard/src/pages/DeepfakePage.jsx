@@ -483,13 +483,23 @@ const DeepfakePage = () => {
                     .filter(([label]) => !['face_detected', 'fake_frame_ratio'].includes(label))
                     .map(([label, score]) => {
                       const isString = typeof score === 'string';
-                      const displayValue = isString ? score : `${Math.round(score * 100)}%`;
-                      const barWidth = isString ? '0%' : `${Math.round(score * 100)}%`;
-                      const color = label.toLowerCase().includes('fake') || label.toLowerCase().includes('ai') ? '#ef4444' : '#22c55e';
+                      let finalLabel = label;
+                      let finalScore = score;
+                      let isFakeMetric = label.toLowerCase().includes('fake') || label.toLowerCase().includes('ai');
+
+                      if (!isString && isFakeMetric && score < 0.5) {
+                        finalLabel = label.replace(/Fake/ig, 'Authentic').replace(/AI/ig, 'Human');
+                        finalScore = 1 - score;
+                        isFakeMetric = false;
+                      }
+
+                      const displayValue = isString ? finalScore : `${Math.round(finalScore * 100)}%`;
+                      const barWidth = isString ? '0%' : `${Math.round(finalScore * 100)}%`;
+                      const color = isFakeMetric ? '#ef4444' : '#22c55e';
                       
                       return (
-                        <div key={label} className="df-score-row">
-                          <span className="df-score-label">{label}</span>
+                        <div key={finalLabel} className="df-score-row">
+                          <span className="df-score-label">{finalLabel}</span>
                           <div className="df-score-bar-track">
                             <div
                               className="df-score-bar-fill"
