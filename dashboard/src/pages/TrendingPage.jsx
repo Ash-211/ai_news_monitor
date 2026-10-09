@@ -146,7 +146,7 @@ const TrendingPage = () => {
       </div>
 
       {/* Platform Selector */}
-      {!loading && !result && (
+      {!loading && (
         <>
           <div className="trending-platforms">
             {Object.entries(PLATFORM_DEFAULTS).map(([key, plat]) => (
