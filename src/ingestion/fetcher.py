@@ -13,29 +13,13 @@ from src.ingestion.image_filter import check_image_novelty
 load_dotenv()
 
 class NewsAPIFetcher:
+    """NewsAPI fetcher disabled to avoid API limits and errors."""
     def __init__(self):
-        api_key = os.getenv('NEWSAPI_KEY')
-        if not api_key:
-            print("WARNING: NEWSAPI_KEY not found in .env file.")
-        self.newsapi = NewsApiClient(api_key=api_key) if api_key else None
+        self.newsapi = None
 
     def fetch_top_headlines(self, category='technology', language='en', page_size=20):
-        if not self.newsapi:
-            return []
-            
-        try:
-            response = self.newsapi.get_top_headlines(
-                category=category,
-                language=language,
-                page_size=page_size
-            )
-            
-            if response['status'] == 'ok':
-                return response['articles']
-            return []
-        except Exception as e:
-            print(f"Error fetching from NewsAPI: {e}")
-            return []
+        # Disabled as requested to prevent 429 rate limit errors
+        return []
 
 class RSSFetcher:
     def __init__(self, feed_urls):
@@ -183,12 +167,8 @@ def run_ingestion():
     """
     print(f"[{datetime.now()}] Starting data ingestion cycle...")
     
-    # 1. Fetch from NewsAPI
-    newsapi_fetcher = NewsAPIFetcher()
-    # You can loop through multiple categories: 'business', 'technology', 'health', 'science', 'sports'
-    api_articles = newsapi_fetcher.fetch_top_headlines(category='technology')
-    api_saved = save_articles_to_db(api_articles, source_type="NewsAPI")
-    print(f"Saved {api_saved} new articles from NewsAPI.")
+    # 1. NewsAPI fetching disabled to avoid 429 rate limit errors
+    # print("NewsAPI disabled.")
 
     # 2. Fetch from RSS Feeds
     rss_urls = [

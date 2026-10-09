@@ -1,25 +1,37 @@
 import os
-from huggingface_hub import InferenceClient
+import torch
+from transformers import AutoTokenizer, AutoModel
 from sqlalchemy import text
 from src.ingestion.database import get_session, Article, SocialMediaPost
 
 # We use a tiny but powerful model for generating text embeddings (384 dimensions)
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
+_local_embed_tokenizer = None
+_local_embed_model = None
+
 def get_embedding(text_content: str) -> list[float]:
-    """Calls Hugging Face API to get a vector embedding for the text."""
-    token = os.environ.get("HF_TOKEN")
-    if not token or not text_content:
+    """Generates a 384-dimensional vector embedding locally (free, zero API credits)."""
+    global _local_embed_tokenizer, _local_embed_model
+    if not text_content or not text_content.strip():
         return []
         
-    client = InferenceClient(token=token)
     try:
-        # Get embeddings via HF Serverless Feature Extraction
-        response = client.feature_extraction(text_content, model=EMBEDDING_MODEL)
-        # response is a list of floats (size 384)
-        return response
+        if _local_embed_tokenizer is None or _local_embed_model is None:
+            _local_embed_tokenizer = AutoTokenizer.from_pretrained(EMBEDDING_MODEL)
+            _local_embed_model = AutoModel.from_pretrained(EMBEDDING_MODEL)
+            _local_embed_model.eval()
+
+        inputs = _local_embed_tokenizer(
+            text_content[:1000], padding=True, truncation=True, max_length=512, return_tensors='pt'
+        )
+        with torch.no_grad():
+            outputs = _local_embed_model(**inputs)
+            # Mean pooling
+            vector = outputs.last_hidden_state.mean(dim=1).squeeze().tolist()
+            return vector
     except Exception as e:
-        print(f"[Event Linker] Failed to get embedding: {e}")
+        print(f"[Event Linker] Local embedding generation failed: {e}")
         return []
 
 def link_social_post_to_news(post_id: int, similarity_threshold: float = 0.7) -> list[dict]:
