@@ -579,6 +579,16 @@ def get_trending_platforms():
     from src.ingestion.trending_scraper import PLATFORMS
     return {"platforms": PLATFORMS}
 
+@app.get("/api/trending/latest")
+def get_latest_trending():
+    """Returns the latest scheduled trending scan result from the background job."""
+    try:
+        import json
+        with open("data/latest_trending.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"error": "No scheduled scan results available yet.", "items": [], "stats": {}}
+
 @app.post("/api/trending/scan")
 def scan_trending(payload: TrendingScanRequest):
     """
@@ -593,6 +603,11 @@ def scan_trending(payload: TrendingScanRequest):
             reddit_limit=payload.reddit_limit,
             gnews_limit=payload.gnews_limit,
         )
+        import json
+        import os
+        os.makedirs("data", exist_ok=True)
+        with open("data/latest_trending.json", "w") as f:
+            json.dump(result, f)
         return result
     except Exception as e:
         logging.exception("Trending scan failed")

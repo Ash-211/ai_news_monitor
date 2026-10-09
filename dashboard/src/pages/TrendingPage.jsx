@@ -3,14 +3,13 @@ import './TrendingPage.css';
 
 const PLATFORM_DEFAULTS = {
   reddit:   { name: "Reddit",       icon: "🟠", risk: "high",     color: "#FF4500" },
-  gnews:    { name: "Google News",   icon: "📰", risk: "medium",   color: "#4285F4" },
   twitter:  { name: "X / Twitter",  icon: "𝕏",  risk: "critical", color: "#000000" },
   facebook: { name: "Facebook",     icon: "📘", risk: "critical", color: "#1877F2" },
 };
 
 const TrendingPage = () => {
   const [selectedPlatforms, setSelectedPlatforms] = useState(
-    new Set(["reddit", "gnews", "twitter", "facebook"])
+    new Set(["reddit", "twitter", "facebook"])
   );
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(() => {
@@ -28,6 +27,21 @@ const TrendingPage = () => {
       sessionStorage.removeItem('trendingScanResult');
     }
   }, [result]);
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem('trendingScanResult');
+    if (!saved) {
+      // Fetch latest background scan on mount
+      fetch(`${API_BASE_URL}/api/trending/latest`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && !data.error && data.items && data.items.length > 0) {
+            setResult(data);
+          }
+        })
+        .catch(err => console.error("Could not fetch latest trending:", err));
+    }
+  }, [API_BASE_URL]);
 
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -63,8 +77,7 @@ const TrendingPage = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           platforms: Array.from(selectedPlatforms),
-          reddit_limit: 3,
-          gnews_limit: 8,
+          reddit_limit: 5,
         }),
       });
 
@@ -121,7 +134,7 @@ const TrendingPage = () => {
               d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
         </div>
-        <h1>Trending Fake News Scanner</h1>
+        <h1>Social Misinformation Radar</h1>
         <p>
           Scan trending content across social media platforms where misinformation
           spreads the most — powered by AI-driven fake news detection.
