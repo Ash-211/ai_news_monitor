@@ -612,3 +612,26 @@ def scan_trending(payload: TrendingScanRequest):
     except Exception as e:
         logging.exception("Trending scan failed")
         return {"error": f"Scan failed: {str(e)}", "items": [], "stats": {}}
+
+
+# ── Discord Bot Background Runner (for Hugging Face Spaces or container hosting)
+@app.on_event("startup")
+async def start_discord_bot_background():
+    token = (os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN") or "").strip()
+    if token:
+        async def _run_bot():
+            try:
+                import discord
+                from src.bot.bot import bot
+                if not bot.cogs:
+                    for ext in ["src.bot.cogs.news_commands", "src.bot.cogs.scheduler", "src.bot.cogs.verify_commands"]:
+                        try:
+                            await bot.load_extension(ext)
+                        except Exception as cog_err:
+                            logging.warning("Cog load failed for %s: %s", ext, cog_err)
+                logging.info("Starting background Discord bot...")
+                await bot.start(token)
+            except Exception as bot_err:
+                logging.error("Failed to start Discord bot background task: %s", bot_err)
+
+        asyncio.create_task(_run_bot())
