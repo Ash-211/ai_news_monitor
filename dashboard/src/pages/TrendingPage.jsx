@@ -20,6 +20,8 @@ const TrendingPage = () => {
   const [filter, setFilter] = useState("all"); // all | fake | real
   const [expandedItems, setExpandedItems] = useState(new Set());
 
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
   useEffect(() => {
     if (result) {
       sessionStorage.setItem('trendingScanResult', JSON.stringify(result));
@@ -42,8 +44,6 @@ const TrendingPage = () => {
         .catch(err => console.error("Could not fetch latest trending:", err));
     }
   }, [API_BASE_URL]);
-
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
   const togglePlatform = (key) => {
     setSelectedPlatforms((prev) => {
