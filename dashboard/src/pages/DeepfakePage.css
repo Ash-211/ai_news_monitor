@@ -38,7 +38,7 @@
 .df-title {
   font-size: 1.6rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--text-main);
   margin: 0;
 }
 
@@ -64,7 +64,7 @@
   border-color: #a855f7;
   background: rgba(168, 85, 247, 0.08);
   transform: scale(1.01);
-  box-shadow: 0 0 40px rgba(168, 85, 247, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 
 .df-dropzone-icon {
@@ -76,7 +76,7 @@
 .df-dropzone-text {
   font-size: 1.1rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-main);
   margin-bottom: 0.5rem;
 }
 
@@ -91,8 +91,8 @@
 }
 
 .df-preview-card {
-  background: var(--surface-card);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: 16px;
   overflow: hidden;
   margin-bottom: 1.5rem;
@@ -111,7 +111,7 @@
 
 .df-preview-name {
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-main);
   margin: 0 0 4px;
   font-size: 0.95rem;
 }
@@ -145,23 +145,23 @@
 .df-btn-primary {
   background: linear-gradient(135deg, #a855f7, #7c3aed);
   color: #fff;
-  box-shadow: 0 4px 20px rgba(168, 85, 247, 0.3);
+  box-shadow: var(--shadow-sm);
 }
 
 .df-btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(168, 85, 247, 0.4);
+  box-shadow: var(--shadow-sm);
 }
 
 .df-btn-secondary {
-  background: var(--surface-card);
+  background: var(--bg-card);
   color: var(--text-muted);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-light);
 }
 
 .df-btn-secondary:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
+  background: var(--bg-card-hover);
+  color: var(--text-main);
 }
 
 /* ── Loading Skeleton ────────────────────────────────────────────────── */
@@ -172,8 +172,8 @@
 .df-loading-card {
   display: flex;
   gap: 1.5rem;
-  background: var(--surface-card);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: 16px;
   padding: 1.5rem;
 }
@@ -208,7 +208,7 @@
 }
 
 .df-error h3 {
-  color: #ef4444;
+  color: var(--danger);
   margin: 0 0 0.5rem;
   font-size: 1.2rem;
 }
@@ -224,8 +224,8 @@
 }
 
 .df-result-card {
-  background: var(--surface-card);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: 20px;
   padding: 2rem;
 }
@@ -237,7 +237,7 @@
   gap: 1.5rem;
   margin-bottom: 1.5rem;
   padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .df-verdict-ring-container {
@@ -295,12 +295,12 @@
 
 .df-badge-fake {
   background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
+  color: var(--danger);
 }
 
 .df-badge-real {
   background: rgba(34, 197, 94, 0.12);
-  color: #22c55e;
+  color: var(--success);
 }
 
 .df-badge-type {
@@ -310,7 +310,7 @@
 
 .df-badge-file {
   background: rgba(148, 163, 184, 0.1);
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 /* Media Preview in Results */
@@ -335,7 +335,7 @@
   gap: 0.5rem;
   font-size: 1rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-main);
   margin: 0 0 1rem;
 }
 
@@ -349,7 +349,7 @@
 }
 
 .df-explanation-line {
-  color: #334155;
+  color: var(--text-main);
   font-size: 0.9rem;
   line-height: 1.6;
   margin: 0 0 0.5rem;
@@ -362,7 +362,7 @@
 /* ── Frame Timeline ──────────────────────────────────────────────────── */
 .df-timeline {
   background: rgba(241, 245, 249, 0.8);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-light);
   border-radius: 14px;
   padding: 1.25rem;
   margin-bottom: 1.5rem;
@@ -440,7 +440,7 @@
   flex: 1;
   min-width: 100px;
   background: rgba(30, 41, 59, 0.4);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-light);
   border-radius: 12px;
   padding: 0.75rem 1rem;
   text-align: center;
@@ -465,7 +465,7 @@
 /* ── Raw Score Bars ──────────────────────────────────────────────────── */
 .df-raw-scores {
   background: rgba(241, 245, 249, 0.8);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-light);
   border-radius: 14px;
   padding: 1.25rem;
 }
@@ -486,7 +486,7 @@
   width: 80px;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #334155;
+  color: var(--text-main);
   text-align: right;
 }
 
@@ -508,7 +508,7 @@
   width: 40px;
   font-size: 0.8rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--text-main);
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────── */
@@ -556,14 +556,14 @@
   gap: 0.5rem;
   font-size: 0.9rem;
   font-weight: 600;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary, var(--text-muted));
   margin-bottom: 0.5rem;
 }
 
 .df-optional-tag {
   font-weight: 400;
   font-size: 0.8rem;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, var(--text-muted));
 }
 
 .df-context-textarea {
@@ -573,7 +573,7 @@
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
-  color: var(--text-primary, #e2e8f0);
+  color: var(--text-main));
   font-size: 0.9rem;
   font-family: inherit;
   resize: vertical;
@@ -583,11 +583,11 @@
 
 .df-context-textarea:focus {
   border-color: rgba(168, 85, 247, 0.5);
-  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 
 .df-context-textarea::placeholder {
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, var(--text-muted));
   font-size: 0.85rem;
 }
 
@@ -631,7 +631,7 @@
   display: block;
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted, var(--text-muted));
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -639,7 +639,7 @@
 .df-meta-val {
   display: block;
   font-size: 0.9rem;
-  color: var(--text-primary, #e2e8f0);
+  color: var(--text-main));
   margin-top: 2px;
   word-break: break-word;
 }
@@ -668,14 +668,14 @@
 }
 
 @keyframes pulseWarning {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-  50%      { box-shadow: 0 0 12px 2px rgba(239, 68, 68, 0.15); }
+  0%, 100% { box-shadow: var(--shadow-sm); }
+  50%      { box-shadow: var(--shadow-sm); }
 }
 
 .df-context-explanation {
   font-size: 0.92rem;
   line-height: 1.65;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary, var(--text-muted));
   margin-top: 0.5rem;
   white-space: pre-wrap;
 }
