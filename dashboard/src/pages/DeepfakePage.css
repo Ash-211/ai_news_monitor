@@ -573,7 +573,7 @@
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
-  color: var(--text-main));
+  color: var(--text-main);
   font-size: 0.9rem;
   font-family: inherit;
   resize: vertical;
@@ -639,7 +639,7 @@
 .df-meta-val {
   display: block;
   font-size: 0.9rem;
-  color: var(--text-main));
+  color: var(--text-main);
   margin-top: 2px;
   word-break: break-word;
 }
