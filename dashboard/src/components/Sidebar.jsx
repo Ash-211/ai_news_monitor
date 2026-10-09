@@ -1,6 +1,20 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Globe, ShieldCheck, Flag, Box } from 'lucide-react';
+import { 
+  Globe, 
+  ShieldCheck, 
+  Flag, 
+  Box, 
+  Briefcase, 
+  Cpu, 
+  Trophy, 
+  HelpCircle, 
+  Earth, 
+  Activity, 
+  Landmark, 
+  Layers,
+  Radar
+} from 'lucide-react';
 
 const Sidebar = ({ stats, currentFilter, setCurrentFilter }) => {
   const navigate = useNavigate();
@@ -15,10 +29,37 @@ const Sidebar = ({ stats, currentFilter, setCurrentFilter }) => {
 
   const isHome = location.pathname === '/';
 
+  // Helper function to get a specific icon for a sector/category
+  const getCategoryIcon = (category) => {
+    const cat = category.toLowerCase();
+    if (cat === 'business') return <Briefcase size={16} />;
+    if (cat === 'sci/tech' || cat === 'technology') return <Cpu size={16} />;
+    if (cat === 'sports') return <Trophy size={16} />;
+    if (cat === 'world') return <Earth size={16} />;
+    if (cat === 'health') return <Activity size={16} />;
+    if (cat === 'politics') return <Landmark size={16} />;
+    if (cat === 'unknown') return <HelpCircle size={16} />;
+    if (cat === 'general') return <Layers size={16} />;
+    return <Box size={16} />;
+  };
+
   return (
     <aside className="sidebar">
-      <div className="logo-container" style={{ cursor: 'pointer' }} onClick={() => handleFilterClick('all')}>
-        <div className="logo-icon">N</div>
+      <div className="logo-container" style={{ cursor: 'pointer', padding: '0.2rem 0.5rem 1rem 0.5rem' }} onClick={() => handleFilterClick('all')}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '38px',
+          height: '38px',
+          background: 'rgba(255, 255, 255, 0.05)',
+          border: '1px solid var(--border-strong)',
+          borderRadius: '10px',
+          color: 'var(--text-main)',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
+        }}>
+          <Radar size={20} />
+        </div>
         <div className="brand-name">DailyNewsAI</div>
       </div>
       
@@ -62,7 +103,7 @@ const Sidebar = ({ stats, currentFilter, setCurrentFilter }) => {
             onClick={() => handleFilterClick(category)}
           >
             <div className="filter-button-left">
-              <Box size={16} /> <span style={{ textTransform: 'capitalize' }}>{category}</span>
+              {getCategoryIcon(category)} <span style={{ textTransform: 'capitalize' }}>{category}</span>
             </div>
             <span className="badge">{count}</span>
           </button>
