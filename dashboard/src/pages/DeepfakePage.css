@@ -464,7 +464,7 @@
 
 /* ── Raw Score Bars ──────────────────────────────────────────────────── */
 .df-raw-scores {
-  background: rgba(241, 245, 249, 0.8);
+  background: var(--bg-surface);
   border: 1px solid var(--border-light);
   border-radius: 14px;
   padding: 1.25rem;
