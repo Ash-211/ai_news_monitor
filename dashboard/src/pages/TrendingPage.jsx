@@ -356,7 +356,8 @@ const TrendingPage = () => {
                   >
                     <div className="trending-item-header">
                       <div className={`trending-item-score ${scoreClass}`}>
-                        {getScoreLabel(analysis.credibility_score)}
+                        <div className="score-percentage">{getScoreLabel(analysis.credibility_score)}</div>
+                        <div style={{ fontSize: '0.35em', opacity: 0.8, marginTop: '2px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Credibility</div>
                       </div>
                       <div className="trending-item-info">
                         <div className="trending-item-title">
