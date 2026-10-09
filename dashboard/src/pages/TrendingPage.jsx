@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ArticleCard from '../components/ArticleCard';
 import './TrendingPage.css';
 
 const PLATFORM_DEFAULTS = {
@@ -132,12 +133,7 @@ const TrendingPage = () => {
     <div className="trending-page">
       {/* Hero */}
       <div className="trending-hero">
-        <div className="trending-hero-icon">
-          <svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-              d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-        </div>
+
         <h1>Social Misinformation Radar</h1>
         <p>
           Scan trending content across social media platforms where misinformation
@@ -313,9 +309,9 @@ const TrendingPage = () => {
                 className="fetch-latest-btn" 
                 onClick={handleScan}
                 style={{
-                  background: 'var(--brand-primary, #6366f1)',
-                  color: 'var(--bg-card)',
-                  border: 'none',
+                  background: 'var(--bg-surface)',
+                  color: 'var(--text-main)',
+                  border: '1px solid var(--border-strong)',
                   padding: '8px 16px',
                   borderRadius: '6px',
                   fontWeight: '600',
@@ -343,71 +339,26 @@ const TrendingPage = () => {
                 <p>Try selecting a different filter above.</p>
               </div>
             ) : (
-              getFilteredItems().map((item, idx) => {
-                const analysis = item.analysis || {};
-                const isExpanded = expandedItems.has(item.hash);
-                const scoreClass = getScoreClass(analysis);
-                const plat = PLATFORM_DEFAULTS[item.platform] || {};
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                {getFilteredItems().map((item, idx) => {
+                  const analysis = item.analysis || {};
+                  const mappedArticle = {
+                    is_fake: analysis.is_fake,
+                    credibility_score: analysis.credibility_score,
+                    score_details: { explanation_text: analysis.explanation },
+                    source: PLATFORM_DEFAULTS[item.platform]?.name || item.platform,
+                    category: 'Social Media',
+                    url: item.url,
+                    title: item.title,
+                    summary: item.text ? item.text.substring(0, 150) + '...' : 'No content available.',
+                    full_content: item.text,
+                    image_url: null,
+                    image_status: 'discarded'
+                  };
 
-                return (
-                  <div
-                    key={item.hash || idx}
-                    className={`trending-item ${analysis.is_fake ? 'flagged' : 'authentic'}`}
-                  >
-                    <div className="trending-item-header">
-                      <div className={`trending-item-score ${scoreClass}`}>
-                        <div className="score-percentage">{getScoreLabel(analysis.credibility_score)}</div>
-                        <div style={{ fontSize: '0.35em', opacity: 0.8, marginTop: '2px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Credibility</div>
-                      </div>
-                      <div className="trending-item-info">
-                        <div className="trending-item-title">
-                          <a href={item.url} target="_blank" rel="noopener noreferrer">
-                            {item.title}
-                          </a>
-                        </div>
-                        <div className="trending-item-meta">
-                          <span className={`trending-item-badge platform-${item.platform}`}>
-                            {plat.icon} {plat.name || item.platform}
-                          </span>
-                          <span className={`trending-item-badge verdict-${scoreClass}`}>
-                            {analysis.is_fake ? '🚩 Flagged' : '✅ Authentic'}
-                          </span>
-                          {item.source && (
-                            <span className="trending-item-badge source">
-                              {item.source}
-                            </span>
-                          )}
-                          {item.engagement?.upvotes > 0 && (
-                            <span className="trending-item-engagement">
-                              ▲ {item.engagement.upvotes.toLocaleString()}
-                            </span>
-                          )}
-                          {item.engagement?.comments > 0 && (
-                            <span className="trending-item-engagement">
-                              💬 {item.engagement.comments.toLocaleString()}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Expandable AI Explanation */}
-                    <div className="trending-item-body">
-                      <button
-                        className="trending-item-explanation-toggle"
-                        onClick={() => toggleExpand(item.hash)}
-                      >
-                        {isExpanded ? '▾ Hide' : '▸ Show'} AI Analysis
-                      </button>
-                      {isExpanded && analysis.explanation && (
-                        <div className="trending-item-explanation">
-                          {analysis.explanation}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
+                  return <ArticleCard key={item.hash || idx} article={mappedArticle} />;
+                })}
+              </div>
             )}
           </div>
 
