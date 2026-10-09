@@ -16,14 +16,17 @@ try:
 except LookupError:
     nltk.download('punkt')
 
-# Load or download the spaCy English model
-try:
-    nlp = spacy.load("en_core_web_sm")
-except OSError:
-    print("Downloading spacy model 'en_core_web_sm'...")
-    from spacy.cli import download
-    download("en_core_web_sm")
-    nlp = spacy.load("en_core_web_sm")
+# Load spaCy English model lazily (avoid invoking pip download at runtime on low-memory servers)
+nlp = None
+
+def _get_spacy_nlp():
+    global nlp
+    if nlp is None:
+        try:
+            nlp = spacy.load("en_core_web_sm")
+        except Exception:
+            nlp = False
+    return nlp if nlp is not False else None
 
 # Initialize global tools
 stop_words = set(stopwords.words('english'))
@@ -57,9 +60,14 @@ def clean_text(text: str, apply_stemming: bool = False, apply_lemmatization: boo
         
     # 6. Lemmatization (spaCy)
     if apply_lemmatization:
-        doc = nlp(" ".join(tokens))
-        lemmas = [token.lemma_ for token in doc]
-        return " ".join(lemmas)
+        spacy_model = _get_spacy_nlp()
+        if spacy_model:
+            doc = spacy_model(" ".join(tokens))
+            lemmas = [token.lemma_ for token in doc]
+            return " ".join(lemmas)
+        else:
+            tokens = [stemmer.stem(word) for word in tokens]
+            return " ".join(tokens)
         
     return " ".join(tokens)
 

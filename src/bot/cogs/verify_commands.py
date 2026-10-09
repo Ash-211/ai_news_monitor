@@ -14,7 +14,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from src.intelligence.url_verifier import verify_url
+# Lazy import inside the verify command to prevent heavy ML modules
+# from loading into memory when the bot starts up.
 
 logger = logging.getLogger("ai_news_bot.verify_commands")
 
@@ -181,8 +182,22 @@ class VerifyCommands(commands.Cog):
         await interaction.response.defer()
 
         try:
-            # Run the full pipeline
-            data = verify_url(url)
+            # Check if external backend API (e.g. Hugging Face Space) is configured to save RAM
+            api_base = os.getenv("API_BASE_URL") or os.getenv("HF_SPACE_FACTCHECK_URL")
+            data = None
+            if api_base and ("hf.space" in api_base or "onrender.com" in api_base):
+                try:
+                    import httpx
+                    async with httpx.AsyncClient(timeout=45.0) as client:
+                        resp = await client.post(f"{api_base.rstrip('/')}/api/verify", json={"url": url})
+                        if resp.status_code == 200:
+                            data = resp.json()
+                except Exception as api_err:
+                    logger.warning("Remote API verify call failed, trying local: %s", api_err)
+
+            if data is None:
+                from src.intelligence.url_verifier import verify_url
+                data = verify_url(url)
         except Exception as e:
             logger.exception("Unexpected error in /verify: %s", e)
             error_embed = discord.Embed(
