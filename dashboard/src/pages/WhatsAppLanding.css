@@ -13,7 +13,7 @@
 
 /* Hero Section */
 .whatsapp-hero {
-  background: linear-gradient(135deg, #064e3b 0%, var(--text-main) 100%);
+  background: var(--bg-surface);
   border-radius: 24px;
   padding: 4.5rem 2.5rem;
   text-align: center;
@@ -49,7 +49,7 @@
   align-items: center;
   justify-content: center;
   margin: 0 auto 2rem;
-  color: var(--bg-card);
+  color: #ffffff;
   box-shadow: var(--shadow-sm);
   transform: rotate(-5deg);
   transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -67,12 +67,9 @@
 .whatsapp-hero h1 {
   font-size: 3rem;
   font-weight: 800;
-  color: var(--bg-card);
+  color: var(--text-main);
   margin-bottom: 1.25rem;
   letter-spacing: -0.03em;
-  background: linear-gradient(135deg, var(--bg-card) 40%, #bbf7d0 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 
 .hero-subtitle {
@@ -102,7 +99,7 @@
   align-items: center;
   gap: 0.75rem;
   background: #25D366;
-  color: var(--bg-card);
+  color: #ffffff;
   padding: 1rem 2rem;
   border-radius: 14px;
   font-weight: 700;
