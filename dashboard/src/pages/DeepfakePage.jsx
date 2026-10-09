@@ -483,8 +483,8 @@ const DeepfakePage = () => {
                     .filter(([label]) => !['face_detected', 'fake_frame_ratio'].includes(label))
                     .map(([label, score]) => {
                       const isString = typeof score === 'string';
-                      const displayValue = isString ? (score === 'Missing' ? '100%' : score) : `${Math.round(score * 100)}%`;
-                      const barWidth = isString ? (score === 'Missing' ? '100%' : '0%') : `${Math.round(score * 100)}%`;
+                      const displayValue = isString ? score : `${Math.round(score * 100)}%`;
+                      const barWidth = isString ? '0%' : `${Math.round(score * 100)}%`;
                       const color = label.toLowerCase().includes('fake') || label.toLowerCase().includes('ai') ? '#ef4444' : '#22c55e';
                       
                       return (
