@@ -37,13 +37,6 @@ PLATFORMS = {
         "risk_level": "high",
         "description": "Popular posts from trending subreddits"
     },
-    "gnews": {
-        "name": "Google News",
-        "icon": "📰",
-        "color": "#4285F4",
-        "risk_level": "medium",
-        "description": "Trending headlines via Google News"
-    },
     "twitter": {
         "name": "X / Twitter",
         "icon": "𝕏",
@@ -62,7 +55,7 @@ PLATFORMS = {
 
 # Subreddits known strictly for formal news reporting, focusing on India
 REDDIT_SUBREDDITS = [
-    "india", "indianews", "unitedstatesofindia", "worldnews", "geopolitics"
+    "india", "indianews", "unitedstatesofindia", "IndiaSpeaks", "delhi", "mumbai"
 ]
 
 # Facebook public pages that are often sources/subjects of misinformation
@@ -233,8 +226,8 @@ def scrape_twitter_rss(feed_urls: List[str] = None) -> List[Dict]:
     results = []
     try:
         import feedparser
-        # Query GNews for site:twitter.com and breaking/news in India
-        rss_url = "https://news.google.com/rss/search?q=site:twitter.com+india+news&hl=en-IN&gl=IN&ceid=IN:en"
+        # Query GNews for site:twitter.com and breaking/news in India within last 24h
+        rss_url = "https://news.google.com/rss/search?q=site:twitter.com+(india+OR+indian+OR+modi+OR+delhi)+news+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
         feed = feedparser.parse(rss_url)
         for entry in feed.entries[:15]:
             title = entry.get("title", "").strip()
@@ -268,8 +261,8 @@ def scrape_facebook_rss(feed_urls: List[str] = None) -> List[Dict]:
     results = []
     try:
         import feedparser
-        # Query GNews for site:facebook.com and breaking/news in India
-        rss_url = "https://news.google.com/rss/search?q=site:facebook.com+india+news&hl=en-IN&gl=IN&ceid=IN:en"
+        # Query GNews for site:facebook.com and breaking/news in India within last 24h
+        rss_url = "https://news.google.com/rss/search?q=site:facebook.com+(india+OR+indian+OR+modi+OR+delhi)+news+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
         feed = feedparser.parse(rss_url)
         for entry in feed.entries[:15]:
             title = entry.get("title", "").strip()
@@ -455,8 +448,10 @@ def analyze_trending_item(item: Dict, model=None, tokenizer=None) -> Dict:
         verification = None
         if item.get("platform") != "gnews":
             cv = cross_validate_claim(title)
-            if cv["verified"]:
-                verification = f"Cross-validated by {cv['count']} trusted sources including {', '.join(cv['sources'][:2])}."
+            if cv.get("verified"):
+                sources = cv.get("sources", [])
+                source_str = f" including {', '.join(sources[:2])}" if sources else ""
+                verification = f"Cross-validated by {cv.get('count', len(sources))} trusted sources{source_str}."
             else:
                 verification = "Claim could not be cross-validated by any major news outlet."
                 
@@ -515,30 +510,28 @@ def scan_all_platforms(
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}\n")
     
-    all_platforms = platforms or ["reddit", "gnews", "twitter", "facebook"]
+    all_platforms = platforms or ["reddit", "twitter", "facebook"]
     all_items = []
     platform_stats = {}
     
     # ── Scrape each platform ──────────────────────────────────────────
-    if "reddit" in all_platforms:
-        reddit_items = scrape_reddit(limit=reddit_limit)
-        all_items.extend(reddit_items)
-        platform_stats["reddit"] = len(reddit_items)
+    import concurrent.futures
     
-    if "gnews" in all_platforms:
-        gnews_items = scrape_gnews(max_results=gnews_limit)
-        all_items.extend(gnews_items)
-        platform_stats["gnews"] = len(gnews_items)
-    
-    if "twitter" in all_platforms:
-        twitter_items = scrape_twitter_rss()
-        all_items.extend(twitter_items)
-        platform_stats["twitter"] = len(twitter_items)
-    
-    if "facebook" in all_platforms:
-        fb_items = scrape_facebook_rss()
-        all_items.extend(fb_items)
-        platform_stats["facebook"] = len(fb_items)
+    def scrape_platform(plat):
+        if plat == "reddit":
+            return plat, scrape_reddit(limit=reddit_limit)
+        elif plat == "twitter":
+            return plat, scrape_twitter_rss()
+        elif plat == "facebook":
+            return plat, scrape_facebook_rss()
+        return plat, []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        future_to_plat = {executor.submit(scrape_platform, plat): plat for plat in all_platforms}
+        for future in concurrent.futures.as_completed(future_to_plat):
+            plat, items = future.result()
+            all_items.extend(items)
+            platform_stats[plat] = len(items)
     
     # ── Deduplicate by hash ───────────────────────────────────────────
     seen = set()
@@ -555,8 +548,8 @@ def scan_all_platforms(
         
     # ── Pre-filter: Keep only items that look like news or claims ─────
     print("\n  Running LLM Gatekeeper to filter out memes and noise...")
-    gnews_items = [item for item in unique_items if item["platform"] == "gnews"]
-    social_items = [item for item in unique_items if item["platform"] != "gnews"]
+    gnews_items = []
+    social_items = unique_items
     
     if social_items:
         filtered_social = batch_llm_gatekeeper(social_items)
@@ -582,16 +575,21 @@ def scan_all_platforms(
         print(f"  Will use HF Worker API for detection.\n")
     
     # ── Fetch RAG Evidence & Batch Process ────────────────────────────
-    print("  Fetching cross-validation evidence for all claims...")
-    for i, item in enumerate(news_items):
+    print("  Fetching cross-validation evidence for all claims concurrently...")
+    import concurrent.futures
+
+    def _fetch_evidence(item, i):
         safe_title = item['title'][:60].encode('ascii', 'ignore').decode()
         print(f"  [{i+1}/{len(news_items)}] Fetching Evidence | {safe_title}...")
-        
         if item.get("platform") != "gnews":
             cv = cross_validate_claim(item.get("title", ""))
             item["verification"] = cv.get("evidence_string", "No major news outlets are reporting this.")
         else:
             item["verification"] = "Verified GNews source."
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(_fetch_evidence, item, i) for i, item in enumerate(news_items)]
+        concurrent.futures.wait(futures)
 
     print(f"\n  Sending Batch RAG Ensemble request to Llama for {len(news_items)} items...")
     from src.intelligence.fake_news import detect_batch

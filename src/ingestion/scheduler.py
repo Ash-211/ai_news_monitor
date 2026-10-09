@@ -15,9 +15,21 @@ def sync_fts():
 
 from src.intelligence.pipeline import run_intelligence_pipeline
 
+def run_trending_ingestion():
+    from src.ingestion.trending_scraper import scan_all_platforms
+    print("  [Scheduler] Running scheduled trending ingestion...")
+    result = scan_all_platforms(reddit_limit=5, gnews_limit=10)
+    import json
+    import os
+    os.makedirs("data", exist_ok=True)
+    with open("data/latest_trending.json", "w") as f:
+        json.dump(result, f)
+    print("  [Scheduler] Trending ingestion complete and saved.")
+
 def run_jobs():
     run_ingestion()
     run_intelligence_pipeline()
+    run_trending_ingestion()
     reprocess_fakes()
     sync_fts()
 
