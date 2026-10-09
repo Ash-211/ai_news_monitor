@@ -242,21 +242,7 @@ const TrendingPage = () => {
             </div>
           </div>
 
-          {/* Platform Breakdown */}
-          {result.stats?.platforms && (
-            <div className="trending-platform-breakdown">
-              {Object.entries(result.stats.platforms).filter(([platform]) => PLATFORM_DEFAULTS[platform]).map(([platform, count]) => {
-                const plat = PLATFORM_DEFAULTS[platform] || {};
-                return (
-                  <div className="platform-breakdown-chip" key={platform}>
-                    <span>{plat.icon || '📌'}</span>
-                    <span>{plat.name || platform}</span>
-                    <span className="platform-breakdown-count">{count}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+
 
           {/* Filter Tabs */}
           <div className="trending-filter-tabs">
