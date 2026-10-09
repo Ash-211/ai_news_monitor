@@ -572,7 +572,6 @@ def generate_explanation(score: float, title: str = "", content: str = "",
         
     # Rich dynamic fallback explanation if AI model APIs are unavailable
     lines = []
-    lines.append(f"This article received a credibility score of {int(score * 100)}%.")
     if trust_factors:
         lines.append(f"Key credibility indicators include: {'; '.join(trust_factors)}.")
     if risk_factors:
