@@ -107,11 +107,15 @@ const TrendingPage = () => {
 
   const getFilteredItems = () => {
     if (!result?.items) return [];
-    if (filter === 'all') return result.items;
-    if (filter === 'fake') return result.items.filter(i => i.analysis?.is_fake === true);
+    
+    // Completely drop gnews items
+    const validItems = result.items.filter(i => PLATFORM_DEFAULTS[i.platform]);
+    
+    if (filter === 'all') return validItems;
+    if (filter === 'fake') return validItems.filter(i => i.analysis?.is_fake === true);
     if (filter === 'real') return result.items.filter(i => i.analysis?.is_fake === false);
     // platform filter
-    return result.items.filter(i => i.platform === filter);
+    return result.items.filter(i => i.platform === filter && PLATFORM_DEFAULTS[i.platform]);
   };
 
   const formatTime = (iso) => {
@@ -137,7 +141,7 @@ const TrendingPage = () => {
         <h1>Social Misinformation Radar</h1>
         <p>
           Scan trending content across social media platforms where misinformation
-          spreads the most — powered by AI-driven fake news detection.
+          spreads the most powered by AI-driven fake news detection.
         </p>
       </div>
 
@@ -245,7 +249,7 @@ const TrendingPage = () => {
           {/* Platform Breakdown */}
           {result.stats?.platforms && (
             <div className="trending-platform-breakdown">
-              {Object.entries(result.stats.platforms).map(([platform, count]) => {
+              {Object.entries(result.stats.platforms).filter(([platform]) => PLATFORM_DEFAULTS[platform]).map(([platform, count]) => {
                 const plat = PLATFORM_DEFAULTS[platform] || {};
                 return (
                   <div className="platform-breakdown-chip" key={platform}>
@@ -278,7 +282,7 @@ const TrendingPage = () => {
             >
               ✅ Authentic ({result.stats?.authentic || 0})
             </button>
-            {Object.entries(result.stats?.platforms || {}).map(([platform]) => {
+            {Object.entries(result.stats?.platforms || {}).filter(([platform]) => PLATFORM_DEFAULTS[platform]).map(([platform]) => {
               const plat = PLATFORM_DEFAULTS[platform] || {};
               const count = result.items?.filter(i => i.platform === platform).length || 0;
               return (
@@ -301,9 +305,33 @@ const TrendingPage = () => {
               {filter === 'real' && '✅ Likely Authentic Content'}
               {!['all', 'fake', 'real'].includes(filter) && `${PLATFORM_DEFAULTS[filter]?.icon || ''} ${PLATFORM_DEFAULTS[filter]?.name || filter} Results`}
             </h2>
-            <span className="trending-results-time">
-              Scanned: {formatTime(result.scanned_at)}
-            </span>
+            <div className="trending-results-actions" style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+              <span className="trending-results-time">
+                Scanned: {formatTime(result.scanned_at)}
+              </span>
+              <button 
+                className="fetch-latest-btn" 
+                onClick={handleScan}
+                style={{
+                  background: 'var(--brand-primary, #6366f1)',
+                  color: 'white',
+                  border: 'none',
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-1px)'}
+                onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+              >
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                Fetch Latest
+              </button>
+            </div>
           </div>
 
           {/* Items List */}
