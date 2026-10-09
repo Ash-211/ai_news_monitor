@@ -165,6 +165,22 @@ h1, h2, h3, h4, h5, h6 {
   overflow-y: auto;
 }
 
+/* --- SCROLLBAR STYLING --- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-body);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
 /* Hide scrollbar for sidebar */
 .sidebar::-webkit-scrollbar {
   width: 0px;

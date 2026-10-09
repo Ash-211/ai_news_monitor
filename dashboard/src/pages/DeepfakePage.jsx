@@ -128,8 +128,8 @@ const DeepfakePage = () => {
     const circumference = 2 * Math.PI * radius;
     const offset = circumference - (confidence * circumference);
     const color = isFake
-      ? (pct >= 70 ? '#ef4444' : '#f59e0b')   // Red for high-confidence fake, amber for low
-      : (pct >= 70 ? '#22c55e' : '#3b82f6');   // Green for high-confidence real, blue for low
+      ? (pct >= 70 ? 'var(--danger)' : '#f59e0b')   // Red for high-confidence fake, amber for low
+      : (pct >= 70 ? 'var(--success)' : '#3b82f6');   // Green for high-confidence real, blue for low
 
     return (
       <div className="df-verdict-ring-container">
@@ -174,7 +174,7 @@ const DeepfakePage = () => {
         <div className="df-timeline-chart">
           {frameResults.map((frame, idx) => {
             const heightPct = (frame.confidence / maxConf) * 100;
-            const color = frame.is_fake ? '#ef4444' : '#22c55e';
+            const color = frame.is_fake ? 'var(--danger)' : 'var(--success)';
             return (
               <div key={idx} className="df-timeline-bar-wrapper" title={`Frame ${frame.frame} (${frame.timestamp}s) — ${frame.label}: ${Math.round(frame.confidence * 100)}%`}>
                 <div
@@ -192,8 +192,8 @@ const DeepfakePage = () => {
           })}
         </div>
         <div className="df-timeline-legend">
-          <span className="df-legend-item"><span className="df-legend-dot" style={{ background: '#22c55e' }} /> Real</span>
-          <span className="df-legend-item"><span className="df-legend-dot" style={{ background: '#ef4444' }} /> Fake</span>
+          <span className="df-legend-item"><span className="df-legend-dot" style={{ background: 'var(--success)' }} /> Real</span>
+          <span className="df-legend-item"><span className="df-legend-dot" style={{ background: 'var(--danger)' }} /> Fake</span>
         </div>
       </div>
     );
@@ -306,7 +306,7 @@ const DeepfakePage = () => {
             <p style={{ color: 'var(--text-muted)', fontSize: '1rem', fontWeight: '500' }}>
               {mediaType === 'video' ? 'Extracting & analyzing frames...' : 'Analyzing image...'}
             </p>
-            <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '4px' }}>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '4px' }}>
               {mediaType === 'video'
                 ? 'Frame Extraction → Per-Frame Classification → Score Aggregation'
                 : 'Preprocessing → Model Inference → Explanation Generation'}
@@ -333,7 +333,7 @@ const DeepfakePage = () => {
             <div className="df-result-header">
               {renderVerdictRing(result.confidence, result.is_fake)}
               <div className="df-result-info">
-                <h2 className="df-result-verdict" style={{ color: result.is_fake ? '#ef4444' : '#22c55e' }}>
+                <h2 className="df-result-verdict" style={{ color: result.is_fake ? 'var(--danger)' : 'var(--success)' }}>
                   {result.is_fake ? '⚠️ Likely Deepfake / AI-Generated' : '✅ Likely Authentic'}
                 </h2>
                 <div className="df-result-meta">
@@ -495,7 +495,7 @@ const DeepfakePage = () => {
 
                       const displayValue = isString ? finalScore : `${Math.round(finalScore * 100)}%`;
                       const barWidth = isString ? '0%' : `${Math.round(finalScore * 100)}%`;
-                      const color = isFakeMetric ? '#ef4444' : '#22c55e';
+                      const color = isFakeMetric ? 'var(--danger)' : 'var(--success)';
                       
                       return (
                         <div key={finalLabel} className="df-score-row">

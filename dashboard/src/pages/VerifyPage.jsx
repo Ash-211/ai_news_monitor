@@ -50,7 +50,7 @@ const VerifyPage = () => {
 
   // Credibility ring colour
   const getScoreColor = (score) => {
-    if (score === null || score === undefined) return '#94a3b8';
+    if (score === null || score === undefined) return 'var(--text-muted)';
     if (score >= 0.6) return 'var(--success)';
     if (score >= 0.4) return 'var(--warning)';
     return 'var(--danger)';
@@ -66,7 +66,7 @@ const VerifyPage = () => {
         <div
           className="credibility-ring"
           style={{
-            background: `conic-gradient(${color} ${angle}deg, #e2e8f0 ${angle}deg)`,
+            background: `conic-gradient(${color} ${angle}deg, var(--border-light) ${angle}deg)`,
           }}
         >
           <div className="credibility-ring-inner">
@@ -166,14 +166,14 @@ const VerifyPage = () => {
             </div>
 
             {/* Footer Skeleton */}
-            <div className="verify-result-footer" style={{ borderTop: 'none', background: '#fafafa' }}>
+            <div className="verify-result-footer" style={{ borderTop: 'none', background: 'var(--bg-surface)' }}>
               <div className="skeleton-line skeleton-shimmer" style={{ width: '30%', height: '14px' }} />
             </div>
           </div>
           
           <div style={{ textAlign: 'center', marginTop: '20px' }}>
-             <p style={{ color: 'var(--text-muted)', fontSize: '1rem', fontWeight: '500' }}>Analyzing article...</p><div className="loading-spinner" style={{ margin: "16px auto", width: "32px", height: "32px", border: "4px solid #e2e8f0", borderTop: "4px solid var(--primary)", borderRadius: "50%", animation: "spin 1s linear infinite" }}></div>
-             <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '4px' }}>Scraping → Cleaning → Classifying → Detecting → Fact-checking</p>
+             <p style={{ color: 'var(--text-muted)', fontSize: '1rem', fontWeight: '500' }}>Analyzing article...</p><div className="loading-spinner" style={{ margin: "16px auto", width: "32px", height: "32px", border: "4px solid var(--border-light)", borderTop: "4px solid var(--primary)", borderRadius: "50%", animation: "spin 1s linear infinite" }}></div>
+             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '4px' }}>Scraping → Cleaning → Classifying → Detecting → Fact-checking</p>
           </div>
         </div>
       )}
@@ -245,7 +245,7 @@ const VerifyPage = () => {
                   <div className="verify-section-title">
                     📸 Extracted Image
                   </div>
-                  <img src={result.image_url} alt="Extracted" style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                  <img src={result.image_url} alt="Extracted" style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '8px', border: '1px solid var(--border-light)' }} />
                 </div>
               )}
 
