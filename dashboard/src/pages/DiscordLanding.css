@@ -13,13 +13,13 @@
 
 /* Hero Section */
 .discord-hero {
-  background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);
+  background: linear-gradient(135deg, #1e1b4b 0%, var(--text-main) 100%);
   border-radius: 24px;
   padding: 4.5rem 2.5rem;
   text-align: center;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 20px 40px -15px rgba(15, 23, 42, 0.3);
+  box-shadow: var(--shadow-sm);
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -49,15 +49,15 @@
   align-items: center;
   justify-content: center;
   margin: 0 auto 2rem;
-  color: white;
-  box-shadow: 0 0 30px rgba(88, 101, 242, 0.5), inset 0 2px 4px rgba(255, 255, 255, 0.2);
+  color: var(--bg-card);
+  box-shadow: var(--shadow-sm);
   transform: rotate(-5deg);
   transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 .discord-logo-glow:hover {
   transform: rotate(5deg) scale(1.1);
-  box-shadow: 0 0 45px rgba(88, 101, 242, 0.8);
+  box-shadow: var(--shadow-sm);
 }
 
 .discord-svg {
@@ -67,17 +67,17 @@
 .discord-hero h1 {
   font-size: 3rem;
   font-weight: 800;
-  color: #ffffff;
+  color: var(--bg-card);
   margin-bottom: 1.25rem;
   letter-spacing: -0.03em;
-  background: linear-gradient(135deg, #ffffff 40%, #c7d2fe 100%);
+  background: linear-gradient(135deg, var(--bg-card) 40%, #c7d2fe 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .hero-subtitle {
   font-size: 1.15rem;
-  color: #94a3b8;
+  color: var(--text-muted);
   max-width: 650px;
   margin: 0 auto 2.5rem;
   line-height: 1.6;
@@ -95,21 +95,21 @@
   align-items: center;
   gap: 0.75rem;
   background: #5865f2;
-  color: white;
+  color: var(--bg-card);
   padding: 1rem 2rem;
   border-radius: 14px;
   font-weight: 700;
   font-size: 1.1rem;
   text-decoration: none;
   font-family: 'Outfit', sans-serif;
-  box-shadow: 0 4px 20px rgba(88, 101, 242, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  box-shadow: var(--shadow-sm);
   transition: all 0.2s ease;
 }
 
 .btn-discord-invite:hover {
   background: #4752c4;
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(88, 101, 242, 0.5);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn-discord-invite:active {
@@ -120,7 +120,7 @@
 .features-section h2, .setup-guide-section h2 {
   font-size: 1.75rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-main);
   margin-bottom: 2rem;
   letter-spacing: -0.02em;
 }
@@ -132,11 +132,11 @@
 }
 
 .feature-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: 20px;
   padding: 2rem;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   flex-direction: column;
@@ -146,14 +146,14 @@
 
 .feature-card:hover {
   transform: translateY(-5px);
-  box-shadow: 0 12px 20px -5px rgba(0, 0, 0, 0.1);
-  border-color: #cbd5e1;
+  box-shadow: var(--shadow-sm);
+  border-color: var(--border-strong);
 }
 
 .feature-icon-wrapper {
   width: 48px;
   height: 48px;
-  background: #f1f5f9;
+  background: var(--bg-surface);
   border-radius: 12px;
   display: flex;
   align-items: center;
@@ -164,25 +164,25 @@
 .feature-card h3 {
   font-size: 1.25rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-main);
 }
 
 .feature-card p {
   font-size: 0.95rem;
-  color: #64748b;
+  color: var(--text-muted);
   line-height: 1.6;
   flex-grow: 1;
 }
 
 .command-tag {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--bg-surface);
+  color: var(--text-muted);
   font-family: 'Courier New', Courier, monospace;
   font-weight: 700;
   font-size: 0.85rem;
   padding: 0.35rem 0.75rem;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-light);
 }
 
 /* Timeline/Guide Section */
@@ -198,7 +198,7 @@
   top: 8px;
   bottom: 8px;
   width: 2px;
-  background: #e2e8f0;
+  background: var(--border-light);
 }
 
 .timeline-item {
@@ -216,7 +216,7 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 2px solid #5865f2;
   color: #5865f2;
   display: flex;
@@ -228,30 +228,30 @@
 }
 
 .timeline-panel {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: 16px;
   padding: 1.5rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+  box-shadow: var(--shadow-sm);
 }
 
 .timeline-panel h4 {
   font-size: 1.1rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-main);
   margin-bottom: 0.5rem;
 }
 
 .timeline-panel p {
   font-size: 0.95rem;
-  color: #64748b;
+  color: var(--text-muted);
   line-height: 1.5;
 }
 
 .timeline-panel code {
-  background: #f1f5f9;
+  background: var(--bg-surface);
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
-  color: #0f172a;
+  color: var(--text-main);
   font-weight: 600;
 }

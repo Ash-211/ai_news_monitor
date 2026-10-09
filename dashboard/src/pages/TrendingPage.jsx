@@ -231,7 +231,7 @@ const TrendingPage = () => {
               <span className="trending-stat-label">Posts Analyzed</span>
             </div>
             <div className="trending-stat-card">
-              <span className="trending-stat-value" style={{ color: '#94a3b8' }}>
+              <span className="trending-stat-value" style={{ color: 'var(--text-muted)' }}>
                 {result.stats?.non_news_skipped || 0}
               </span>
               <span className="trending-stat-label">Noise Skipped</span>
@@ -314,7 +314,7 @@ const TrendingPage = () => {
                 onClick={handleScan}
                 style={{
                   background: 'var(--brand-primary, #6366f1)',
-                  color: 'white',
+                  color: 'var(--bg-card)',
                   border: 'none',
                   padding: '8px 16px',
                   borderRadius: '6px',
